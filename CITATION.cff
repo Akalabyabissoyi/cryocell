@@ -1,0 +1,16 @@
+cff-version: 1.2.0
+message: "If you use CryoCell in your research, please cite it as below."
+title: "CryoCell: a virtual human mesenchymal stem cell for testing cryoprotectants in silico"
+authors:
+  - family-names: Bissoyi
+    given-names: Akalabya
+version: 0.6.0
+date-released: 2026-08-22
+license: MIT
+repository-code: "https://github.com/akalabya/cryocell"
+keywords:
+  - cryobiology
+  - cryopreservation
+  - biophysics
+  - virtual cell
+  - simulation

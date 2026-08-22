@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cryocell"
+version = "0.6.0"
+description = "A virtual human mesenchymal stem cell for testing cryoprotectants in silico."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Akalabya Bissoyi" }]
+keywords = ["cryobiology", "cryopreservation", "biophysics", "virtual-cell", "simulation"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+]
+dependencies = [
+    "PyQt6>=6.5",
+    "pyqtgraph>=0.13",
+    "numpy>=1.24",
+    "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7.0"]
+
+[project.scripts]
+cryocell = "cryocell.app:main"
+
+[project.urls]
+Homepage = "https://github.com/akalabya/cryocell"
+Repository = "https://github.com/akalabya/cryocell"
+
+[tool.setuptools]
+packages = ["cryocell"]
