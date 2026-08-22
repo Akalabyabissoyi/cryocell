@@ -71,5 +71,10 @@ def main():
     print("\nALL INVARIANT TESTS PASSED.")
 
 
+def test_invariants():
+    """pytest entry point: runs every invariant check via assert."""
+    main()
+
+
 if __name__ == "__main__":
     main()
