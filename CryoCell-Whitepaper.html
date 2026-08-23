@@ -1,0 +1,389 @@
+<title>CryoCell Model & Interface</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+  :root{
+    --bg:#f6f8fa; --surface:#ffffff; --surface2:#eef2f6;
+    --ink:#10202e; --ink-soft:#3c4e5b; --muted:#6b7a86;
+    --line:#d9e1e8; --line-strong:#c1ccd6;
+    --accent:#1f6fb2; --accent-soft:#9fc4e8; --accent-wash:#eaf2f9;
+    --ice:#5f93c9; --warm:#c25a28; --warm-wash:#f7ece5;
+    --good:#2f8f5b;
+    --measure:72ch;
+  }
+  :root:not([data-theme="light"]){}
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0b1119; --surface:#111a24; --surface2:#16222e;
+      --ink:#e7eef5; --ink-soft:#b4c3d0; --muted:#7e909e;
+      --line:#22313f; --line-strong:#2d3f4f;
+      --accent:#61a6e0; --accent-soft:#2b4a63; --accent-wash:#132534;
+      --ice:#7fb3e6; --warm:#e0763a; --warm-wash:#2a1c13;
+      --good:#4fb37e;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b1119; --surface:#111a24; --surface2:#16222e;
+    --ink:#e7eef5; --ink-soft:#b4c3d0; --muted:#7e909e;
+    --line:#22313f; --line-strong:#2d3f4f;
+    --accent:#61a6e0; --accent-soft:#2b4a63; --accent-wash:#132534;
+    --ice:#7fb3e6; --warm:#e0763a; --warm-wash:#2a1c13;
+    --good:#4fb37e;
+  }
+
+  *{box-sizing:border-box}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;
+    font-size:17px; line-height:1.62; margin:0;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:min(920px,92vw); margin:0 auto; padding:clamp(28px,6vw,80px) 0 120px}
+  .col{max-width:var(--measure)}
+
+  /* ---- masthead ---- */
+  .mast{border-bottom:2px solid var(--ink); padding-bottom:26px; margin-bottom:40px}
+  .eyebrow{font-family:"IBM Plex Mono",monospace; font-size:12px; letter-spacing:.16em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 16px}
+  h1{font-family:"IBM Plex Serif",Georgia,serif; font-weight:600; letter-spacing:-.01em;
+    font-size:clamp(2.1rem,5.4vw,3.35rem); line-height:1.04; margin:0; text-wrap:balance}
+  .sub{font-family:"IBM Plex Serif",Georgia,serif; font-style:italic; color:var(--ink-soft);
+    font-size:clamp(1.05rem,2.6vw,1.3rem); margin:14px 0 0; max-width:60ch}
+  .meta{display:flex; flex-wrap:wrap; gap:6px 26px; margin-top:22px;
+    font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--muted)}
+  .meta b{color:var(--ink-soft); font-weight:500}
+
+  /* ---- abstract ---- */
+  .abstract{background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--accent);
+    border-radius:4px; padding:22px 26px; margin:0 0 46px}
+  .abstract .lbl{font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.15em;
+    text-transform:uppercase; color:var(--accent); margin:0 0 8px}
+  .abstract p{margin:0; color:var(--ink-soft)}
+
+  /* ---- toc ---- */
+  nav.toc{margin:0 0 52px; padding:20px 24px; background:var(--surface2); border-radius:6px}
+  nav.toc h2{font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.15em;
+    text-transform:uppercase; color:var(--muted); margin:0 0 12px; border:0; padding:0}
+  nav.toc ol{margin:0; padding:0; list-style:none; columns:2; column-gap:40px}
+  @media(max-width:620px){nav.toc ol{columns:1}}
+  nav.toc li{break-inside:avoid; margin:0 0 5px; font-size:15px}
+  nav.toc a{color:var(--ink-soft); text-decoration:none; display:flex; gap:12px}
+  nav.toc a:hover{color:var(--accent)}
+  nav.toc .n{font-family:"IBM Plex Mono",monospace; color:var(--accent); font-size:13px; min-width:22px}
+
+  /* ---- sections ---- */
+  section{margin:0 0 46px}
+  h2{font-family:"IBM Plex Serif",Georgia,serif; font-weight:600; font-size:clamp(1.4rem,3.4vw,1.9rem);
+    line-height:1.15; margin:56px 0 18px; padding-top:20px; border-top:1px solid var(--line);
+    letter-spacing:-.01em; text-wrap:balance; display:flex; gap:16px; align-items:baseline}
+  h2 .sn{font-family:"IBM Plex Mono",monospace; font-size:.62em; color:var(--accent); font-weight:500}
+  h3{font-family:"IBM Plex Sans",sans-serif; font-weight:600; font-size:1.12rem;
+    margin:32px 0 10px; color:var(--ink); letter-spacing:-.005em}
+  p,li{color:var(--ink); max-width:var(--measure)}
+  p{margin:0 0 16px}
+  ul,ol{max-width:var(--measure); padding-left:1.2em; margin:0 0 16px}
+  li{margin:0 0 8px}
+  strong{font-weight:600}
+  em{color:var(--ink-soft)}
+  a{color:var(--accent); text-decoration-thickness:1px; text-underline-offset:2px}
+  .lead{font-size:1.06rem; color:var(--ink-soft)}
+  code{font-family:"IBM Plex Mono",monospace; font-size:.86em; background:var(--surface2);
+    padding:.1em .35em; border-radius:3px}
+
+  /* ---- equations ---- */
+  .eq{display:grid; grid-template-columns:1fr auto; align-items:center; gap:18px;
+    background:var(--surface); border:1px solid var(--line); border-radius:6px;
+    padding:16px 20px; margin:20px 0; overflow-x:auto}
+  .eq math, .eq .m{font-family:"IBM Plex Mono",monospace; font-size:1.02rem; color:var(--ink);
+    line-height:1.7; white-space:nowrap}
+  .eq .num{font-family:"IBM Plex Mono",monospace; font-size:13px; color:var(--muted)}
+  .m sub,.m sup{font-size:.72em}
+  .m .op{color:var(--accent)}
+  .m .cmt{color:var(--muted)}
+  .var{font-family:"IBM Plex Mono",monospace; font-size:.9em; color:var(--accent); font-weight:500}
+
+  /* ---- callout ---- */
+  .note{background:var(--accent-wash); border:1px solid var(--accent-soft); border-radius:6px;
+    padding:16px 20px; margin:22px 0; font-size:15px}
+  .note.prov{background:var(--warm-wash); border-color:var(--warm)}
+  .note .tag{font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--accent); display:block; margin-bottom:6px}
+  .note.prov .tag{color:var(--warm)}
+  .note p{margin:0; color:var(--ink-soft); max-width:none}
+
+  /* ---- table ---- */
+  .tw{overflow-x:auto; margin:22px 0; border:1px solid var(--line); border-radius:6px}
+  table{border-collapse:collapse; width:100%; font-size:14.5px; min-width:520px}
+  th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--line); vertical-align:top}
+  th{font-family:"IBM Plex Mono",monospace; font-size:11.5px; letter-spacing:.08em; text-transform:uppercase;
+    color:var(--muted); background:var(--surface2); font-weight:500}
+  tr:last-child td{border-bottom:0}
+  td .var{white-space:nowrap}
+  td.n{font-family:"IBM Plex Mono",monospace; font-variant-numeric:tabular-nums; color:var(--ink-soft)}
+
+  /* ---- references ---- */
+  .refs{font-size:14px; color:var(--ink-soft)}
+  .refs ol{padding-left:2.4em}
+  .refs li{margin-bottom:9px; max-width:var(--measure)}
+  .refs .j{font-style:italic}
+
+  footer{margin-top:70px; padding-top:22px; border-top:1px solid var(--line);
+    font-family:"IBM Plex Mono",monospace; font-size:12.5px; color:var(--muted)}
+  ::selection{background:var(--accent); color:#fff}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:2px}
+
+  /* ---- print / PDF ---- */
+  @page{ margin:16mm 17mm; }
+  @media print{
+    html,body{background:#fff}
+    .wrap{max-width:none; width:100%; padding:0}
+    *{ -webkit-print-color-adjust:exact; print-color-adjust:exact }
+    a{text-decoration:none}
+    nav.toc{break-inside:avoid}
+    section{break-inside:auto}
+    h2{break-after:avoid; break-before:auto}
+    h3{break-after:avoid}
+    .eq,.tw,table,.note,.abstract,.refs li{break-inside:avoid}
+    tr{break-inside:avoid}
+    footer{break-before:avoid}
+  }
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Technical White Paper · Mechanistic Model</p>
+    <h1>Inside CryoCell</h1>
+    <p class="sub">The biophysics and governing equations behind a virtual mesenchymal stem cell for in-silico cryoprotectant testing.</p>
+    <div class="meta">
+      <span><b>Version</b> 0.6</span>
+      <span><b>Calibration</b> hMSC + DMSO, 1&nbsp;°C/min → 35.4% S<sub>24</sub></span>
+      <span><b>Engine</b> multi-compartment ODE, explicit integration</span>
+      <span><b>Scope</b> slow-freeze cryopreservation</span>
+    </div>
+  </header>
+
+  <div class="abstract">
+    <p class="lbl">Abstract</p>
+    <p>CryoCell simulates a single human mesenchymal stem cell through a complete cryopreservation protocol — CPA loading, cooling, ice seeding, storage, warming, dilution and recovery — from first-principles transport and thermodynamics rather than fitted survival curves. Water and cryoprotectant cross the plasma membrane by Kedem–Katchalsky flux on a deforming, area-conserving membrane; the extracellular solution freeze-concentrates along a non-ideal liquidus; intracellular ice nucleates by surface-catalysed nucleation when the cytosol supercools faster than it can dehydrate; and injury accumulates through five biophysical channels plus a delayed apoptotic wave. Every visual element in the interface is a projection of a state variable the engine actually integrates. This paper documents the governing equations, their literature basis, and how each maps to what is drawn on screen.</p>
+  </div>
+
+  <nav class="toc" aria-label="Contents">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#arch"><span class="n">1</span><span>Architecture &amp; state</span></a></li>
+      <li><a href="#transport"><span class="n">2</span><span>Membrane transport</span></a></li>
+      <li><a href="#thermo"><span class="n">3</span><span>Solution thermodynamics</span></a></li>
+      <li><a href="#ice"><span class="n">4</span><span>Ice &amp; nucleation</span></a></li>
+      <li><a href="#membrane"><span class="n">5</span><span>Membrane phase &amp; vitrification</span></a></li>
+      <li><a href="#mech"><span class="n">6</span><span>Cytoskeleton &amp; mechanics</span></a></li>
+      <li><a href="#organelle"><span class="n">7</span><span>Organelles</span></a></li>
+      <li><a href="#death"><span class="n">8</span><span>Injury &amp; survival</span></a></li>
+      <li><a href="#gui"><span class="n">9</span><span>Interface mapping</span></a></li>
+      <li><a href="#valid"><span class="n">10</span><span>Calibration &amp; limits</span></a></li>
+      <li><a href="#refs"><span class="n">11</span><span>References</span></a></li>
+    </ol>
+  </nav>
+
+  <section id="arch">
+    <h2><span class="sn">01</span> Architecture &amp; state</h2>
+    <p class="lead">CryoCell integrates one cell as a set of coupled compartments — cytosol, plasma membrane, nucleus, mitochondria, and the extracellular solution with its ice field — stepped through a nine-phase protocol.</p>
+    <p>The engine advances an explicit time integrator with flux caps (half/double-step drift &lt; 0.3 survival points at the operating points). At each step it records a state vector; the interface reads that vector and draws it. The principal state variables are:</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Symbol</th><th>State</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td><span class="var">V, Vn</span></td><td>cell volume</td><td>absolute and normalized to isotonic (V/V<sub>iso</sub>)</td></tr>
+          <tr><td><span class="var">Cin, Cout</span></td><td>CPA molarity</td><td>intracellular and extracellular cryoprotectant</td></tr>
+          <tr><td><span class="var">Osme</span></td><td>osmolality</td><td>extracellular total solute (osmol/L); freeze-concentrates</td></tr>
+          <tr><td><span class="var">fIce, grain</span></td><td>ice field</td><td>extracellular ice fraction and mean grain size (µm)</td></tr>
+          <tr><td><span class="var">dTsc</span></td><td>supercooling</td><td>intracellular liquidus minus temperature (°C)</td></tr>
+          <tr><td><span class="var">Piif</span></td><td>IIF probability</td><td>cumulative intracellular-ice nucleation probability</td></tr>
+          <tr><td><span class="var">gel, glass</span></td><td>phase state</td><td>membrane gel fraction; cytosol vitrified fraction</td></tr>
+          <tr><td><span class="var">mt, actin, intf</span></td><td>cytoskeleton</td><td>polymerized fraction of MT / F-actin / vimentin</td></tr>
+          <tr><td><span class="var">dPsi, mpt</span></td><td>mitochondria</td><td>membrane potential ΔΨ<sub>m</sub>; permeability-transition</td></tr>
+          <tr><td><span class="var">pore, prot</span></td><td>integrity</td><td>membrane defect fraction; native-protein fraction</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Survival is reported at three horizons — <span class="var">S_imm</span> (immediate), <span class="var">S_24</span> (24&nbsp;h) and <span class="var">S_72</span> (settled, after the delayed death wave) — plus a functional-recovery index <span class="var">F_rec</span>.</p>
+  </section>
+
+  <section id="transport">
+    <h2><span class="sn">02</span> Membrane transport</h2>
+    <p>Water and permeant CPA cross the membrane by the three-parameter <strong>Kedem–Katchalsky</strong> formalism, which — unlike a two-parameter (L<sub>p</sub>, P<sub>s</sub>) model with implicit σ&nbsp;=&nbsp;1 — times the CPA volume excursion correctly.<sup><a href="#r1">1,2</a></sup> Volume flux is driven by the non-permeant osmotic gradient plus the reflected permeant gradient:</p>
+
+    <div class="eq"><span class="m">J<sub>v</sub> = L<sub>p</sub>·A·R·T·[ (ΔC<sub>np</sub>) <span class="op">+</span> σ·(ΔC<sub>p</sub>) ]</span><span class="num">(1)</span></div>
+
+    <p>The permeant (CPA) flux carries a diffusive Fick term <em>and</em> a solvent-drag term proportional to the water flux:</p>
+
+    <div class="eq"><span class="m">J<sub>s</sub> = P<sub>s</sub>·A·(C<sub>out</sub> − C<sub>in</sub>) <span class="op">+</span> (1 − σ)·C̄·J<sub>v</sub></span><span class="num">(2)</span></div>
+
+    <p>Membrane area is <strong>not</strong> constant: a dehydrated cell has less surface, so flux falls with it, while a folded-membrane reserve buffers the first ~40% of shrinkage before true area is lost:</p>
+
+    <div class="eq"><span class="m">A(t) = A<sub>0</sub>·max( V/V<sub>iso</sub> , 0.60 )<sup>2/3</sup></span><span class="num">(3)</span></div>
+
+    <p>Each CPA carries its own reflection coefficient σ and permeation activation energy E<sub>a,Ps</sub> (Arrhenius-scaled with temperature), so the model ranks glycerol, DMSO, ethylene glycol and propylene glycol by their true relative permeability rather than a single generic constant. In the interface, equation&nbsp;(1) is what the <strong>water-flux arrows</strong> draw — outward as the cell dehydrates, inward on dilution — and the resulting V/V<sub>iso</sub> is the <strong>volume trace</strong> on the timeline.</p>
+
+    <div class="note prov"><span class="tag">Provenance · re-fit</span><p>hMSC L<sub>p</sub> is set to 0.22&nbsp;µm/min/atm (within the measured 0.2–0.4 range) so the corrected variable-area model reproduces the inverted-U cooling-rate optimum. The earlier 0.15 had the constant-area error folded into it.</p></div>
+  </section>
+
+  <section id="thermo">
+    <h2><span class="sn">03</span> Solution thermodynamics</h2>
+    <p>Freezing-point depression uses the <strong>osmotic virial equation</strong> of Elliott et&nbsp;al.,<sup><a href="#r3">3,4</a></sup> non-ideal and composition-specific, rather than the ideal-dilute limit:</p>
+
+    <div class="eq"><span class="m">ΔT<sub>f</sub> = K<sub>f</sub>·osm·(1 <span class="op">+</span> B·osm)<span class="cmt">   ,  K<sub>f</sub> = 1.86 °C·kg/mol</span></span><span class="num">(4)</span></div>
+
+    <p>The second virial coefficient B is blended from the salt and CPA coefficients by osmolal weight. Below the freezing point, the extracellular solution sits <em>on the liquidus</em>: as pure water leaves as ice, the residual unfrozen fraction concentrates to stay in equilibrium. The <strong>freeze-concentration factor</strong> follows directly:</p>
+
+    <div class="eq"><span class="m">cf = osm<sub>tot</sub>(T) / osm<sub>0</sub> &nbsp;&nbsp;⟹&nbsp;&nbsp; f<sub>ice</sub> = 1 − 1/cf</span><span class="num">(5)</span></div>
+
+    <p>so every extracellular species — salt, CPA, additive — scales by <code>cf</code>, and the ice volume fraction is fixed by how far the temperature has pushed along the liquidus. This is the <strong>solution-effects</strong> arm of Mazur's two-factor hypothesis: at slow cooling the cell is exposed for a long time to an increasingly concentrated brine.<sup><a href="#r5">5</a></sup> In the interface, equation&nbsp;(5) drives the density of the <strong>extracellular CPA/salt field</strong> in the unfrozen channel and the operating point on the <strong>phase-diagram inset</strong>.</p>
+    <p>Composition-specific glass-transition (T<sub>g</sub>′) and eutectic temperatures per CPA feed the mobility term (§5), so glycerol arrests far warmer than DMSO.<sup><a href="#r6">6</a></sup></p>
+  </section>
+
+  <section id="ice">
+    <h2><span class="sn">04</span> Ice &amp; nucleation</h2>
+    <p class="lead">The fast-cooling arm of the two-factor hypothesis: when the cytosol cannot dehydrate quickly enough, it supercools, and ice nucleates <em>inside</em> the cell.</p>
+
+    <h3>Intracellular supercooling</h3>
+    <p>The intracellular liquidus is set by the cytosol's own osmolality through equation&nbsp;(4); the supercooling is how far the cell temperature has fallen below it:</p>
+    <div class="eq"><span class="m">T<sub>m,i</sub> = −ΔT<sub>f</sub>(osm<sub>i</sub>) &nbsp;&nbsp;;&nbsp;&nbsp; ΔT<sub>sc</sub> = T<sub>m,i</sub> − T</span><span class="num">(6)</span></div>
+
+    <h3>Surface-catalysed nucleation (SCN)</h3>
+    <p>Intracellular ice forms by heterogeneous nucleation catalysed at the inner plasma-membrane surface by the adjacent external ice — the Toner mechanism.<sup><a href="#r7">7,8</a></sup> The nucleation rate per cell rises catastrophically with supercooling:</p>
+
+    <div class="eq"><span class="m">J = Ω·A·φ<sub>w</sub>·(μ)<sup>n</sup>·exp( −κ / (T<sup>3</sup>·ΔT<sub>sc</sub><sup>2</sup>) )</span><span class="num">(7)</span></div>
+
+    <p>where <span class="var">Ω</span> and <span class="var">κ</span> are the kinetic and thermodynamic SCN parameters, <span class="var">A</span> the membrane area, <span class="var">φ<sub>w</sub></span> the freezable-water fraction and <span class="var">μ</span> the molecular mobility (§5). The cumulative probability of at least one nucleation event integrates the rate over time:</p>
+
+    <div class="eq"><span class="m">P<sub>iif</sub> = 1 − exp( −∫ (J + J<sub>prop</sub>) dt )</span><span class="num">(8)</span></div>
+
+    <p>The exponential in equation&nbsp;(7) is why IIF has a threshold character: small supercooling gives a negligible rate; once ΔT<sub>sc</sub> is large the rate explodes and P<sub>iif</sub>→1. A cryoprotectant suppresses this two ways — it keeps the cell dehydrated (small ΔT<sub>sc</sub>) and it lowers the freezable-water fraction φ<sub>w</sub> — so with adequate CPA the membrane stays a barrier and P<sub>iif</sub> stays near zero. The interface visualizes ΔT<sub>sc</sub> as the gap between the supercooled intracellular point and the liquidus on the phase-diagram inset, and P<sub>iif</sub> as the <strong>intracellular ice crystals</strong> that nucleate at the membrane (SCN) and grow inward, with breach markers where external ice penetrates.</p>
+
+    <h3>Propagation and organelle nucleation</h3>
+    <p>Two additional hazards feed equation&nbsp;(8). <strong>Intercellular propagation</strong> spreads ice through cell–cell junctions, autocatalytically — one nucleation event can sweep a confluent sheet,<sup><a href="#r9">9,10</a></sup> so monolayers suffer far more IIF than dissociated suspensions (junction = 0 for suspensions, preserving the benchmark):</p>
+    <div class="eq"><span class="m">J<sub>prop</sub> = k<sub>prop</sub>·junction·μ·(P<sub>iif</sub> + 0.004·f<sub>ice</sub>)</span><span class="num">(9)</span></div>
+    <p>And the <strong>mitochondrion</strong> acts as an independent nucleator (§7). IIF lethality scales with the peak supercooling at nucleation — deeper supercooling yields more, finer, more damaging crystals — saturating to fully lethal when slow warming permits recrystallisation.<sup><a href="#r7">7</a></sup></p>
+  </section>
+
+  <section id="membrane">
+    <h2><span class="sn">05</span> Membrane phase &amp; vitrification</h2>
+    <p>The bilayer undergoes the <strong>liquid-crystalline → gel</strong> (L<sub>α</sub>→L<sub>β′</sub>) transition below its melting temperature T<sub>m</sub>. The gel fraction is a sigmoid in temperature, with T<sub>m</sub> and the transition width shifted by cholesterol and CPA:</p>
+
+    <div class="eq"><span class="m">gel(T) = 1 / ( 1 <span class="op">+</span> exp( (T − T<sub>m</sub>) / (w/4) ) )</span><span class="num">(10)</span></div>
+
+    <p>Above T<sub>m</sub> the membrane is a fluid with thermal undulations; below it the bilayer is a two-dimensional solid — undulation amplitude scales as √(k<sub>B</sub>T/κ<sub>bend</sub>), bending rigidity jumps, and lateral remodelling ceases.<sup><a href="#r11">11</a></sup> In the interface this is enforced literally: as <code>gel</code> rises the deformable membrane's thermal noise and velocity are quenched and, above gel ≈ 0.8, the contour <em>locks</em> — a stored cell holds its crenated shape as a rigid shell and re-fluidizes only on warming back through T<sub>m</sub>.</p>
+
+    <h3>Cytosolic vitrification</h3>
+    <p>Molecular mobility μ follows a WLF/T<sub>g</sub>′ law;<sup><a href="#r6">6</a></sup> it gates every reaction rate and the nucleation term in equation&nbsp;(7). Its complement is the glass fraction:</p>
+    <div class="eq"><span class="m">glass = 1 − μ(T; T<sub>g</sub>′)</span><span class="num">(11)</span></div>
+    <p>As the cytosol vitrifies it rigidifies the whole cell and locks the organelles in place — a glass has no long-range diffusion. Storage below T<sub>g</sub>′ arrests all molecular motion, which is why deep-cold storage is stable.</p>
+  </section>
+
+  <section id="mech">
+    <h2><span class="sn">06</span> Cytoskeleton &amp; mechanics</h2>
+    <p>The cytoskeleton is modelled as a prestressed <strong>tensegrity</strong> network:<sup><a href="#r12">12</a></sup> microtubules bear compression (struts), the actin cortex and intermediate filaments bear tension (cables). Element-wise stress σ then drives biology rather than a single aggregate tension:</p>
+    <ul>
+      <li><strong>Microtubules buckle</strong> under the compressive load of dehydration and the inter-grain ice squeeze, releasing GEF-H1 and driving RhoA→ROCK→pMLC <em>before</em> the network fully depolymerises.</li>
+      <li><strong>Actin and microtubules are cold-labile</strong> — both depolymerise on cooling (MT strongly, F-actin mildly) and cannot repolymerise until the cytosol de-vitrifies on rewarming (repair gated by μ). <strong>Vimentin</strong> intermediate filaments are cold-stable and become the load-bearing safety net against lytic swelling. The interface draws each filament class dissolving into free monomers as its polymerized fraction falls.</li>
+      <li><strong>Mechanical stress reaches the mitochondria</strong>, reversibly depressing ΔΨ<sub>m</sub> (to ~65% during the mechanically-stressed freeze) and adding a mechanosensitive term to the permeability transition.</li>
+    </ul>
+    <p>This chain is drawn end-to-end in the FA·LINC panel: ECM → integrins → talin/vinculin/FAK → actin stress fibre → RhoA-ROCK-LIMK-cofilin → nesprin–SUN → lamin A/C → mechanosensitive genes (YAP/TAZ).</p>
+  </section>
+
+  <section id="organelle">
+    <h2><span class="sn">07</span> Organelles</h2>
+    <p>The <strong>mitochondrion</strong> is an independent osmometer and ice nucleator. Its inner membrane exchanges water fast (aquaporin-8), so the matrix stays near cytosolic osmolality and supercools with it — but the cardiolipin-rich inner membrane is an efficient heterogeneous nucleator, so per unit area it fires equation&nbsp;(7) more readily than the plasma membrane.<sup><a href="#r13">13,14</a></sup> A frozen mitochondrion seeds cytosolic ice and opens the permeability transition directly, which is what makes fast cooling markedly worse. CPA crosses the inner membrane with a lag; at slow cooling the matrix pre-equilibrates and is protected, at fast cooling it stays under-protected and freezes first.</p>
+    <p>Organelles are drawn at their true physical size relative to the whole cell (a mitochondrion ~2.1 × 0.6&nbsp;µm in a ~15&nbsp;µm cell) via the fixed pixel-per-micron scale, and shrink mildly with dehydration. The <strong>nucleus</strong> is deliberately passive: nuclear-pore permeability keeps it in equilibrium with the cytosol, so it tracks the cytosol rather than acting as an independent osmometer — the physically correct choice, not a shortcut.</p>
+  </section>
+
+  <section id="death">
+    <h2><span class="sn">08</span> Injury &amp; survival</h2>
+    <p>Immediate survival is the product of five independent survival factors — one per biophysical injury channel — so any single lethal insult caps the outcome:</p>
+
+    <div class="eq"><span class="m">S<sub>imm</sub> = (1−D<sub>iif</sub>)(1−D<sub>osm</sub>)(1−D<sub>mem</sub>)(1−D<sub>tox</sub>)(1−D<sub>mech</sub>)</span><span class="num">(12)</span></div>
+
+    <div class="tw">
+      <table>
+        <thead><tr><th>Term</th><th>Injury</th><th>Driver</th></tr></thead>
+        <tbody>
+          <tr><td><span class="var">D_iif</span></td><td>intracellular ice</td><td>P<sub>iif</sub> (eq. 8) + mitochondrial ice, scaled by supercooling</td></tr>
+          <tr><td><span class="var">D_osm</span></td><td>osmotic / solution-effects</td><td>freeze-concentrated salt exposure; excursions past volume limits</td></tr>
+          <tr><td><span class="var">D_mem</span></td><td>membrane lysis</td><td>pore/defect fraction; fragmentation</td></tr>
+          <tr><td><span class="var">D_tox</span></td><td>CPA toxicity</td><td>Arrhenius-gated denaturation at high warm CPA concentration</td></tr>
+          <tr><td><span class="var">D_mech</span></td><td>mechanical</td><td>inter-grain channel squeeze; cytoskeletal overload</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p>A regulated-death layer then acts on the survivors. The 24&nbsp;h endpoint subtracts apoptosis and necrosis; the settled 72&nbsp;h endpoint subtracts a <strong>delayed wave</strong> — cryopreservation-induced delayed-onset cell death (CIDOC), driven by residual ROS and primed executioner caspase that keep killing cells for one to three days after thaw:<sup><a href="#r15">15,16</a></sup></p>
+
+    <div class="eq"><span class="m">S<sub>24</sub> = S<sub>imm</sub>·(1 − D<sub>apop</sub>)</span><span class="num">(13)</span></div>
+    <div class="eq"><span class="m">S<sub>72</sub> = S<sub>24</sub>·(1 − D<sub>delayed</sub>)<span class="cmt">,  D<sub>delayed</sub> = 0.55·ROS<sub>peak</sub> + 0.35·casp3</span></span><span class="num">(14)</span></div>
+
+    <p>Functional recovery <span class="var">F_rec</span> gates surviving cells further by the machinery they need to work again — repolymerized cytoskeleton, restored ΔΨ<sub>m</sub> and ATP, re-established adhesion, and correctly folded protein. A cell can survive and still fail to function; the model reports both. Cell-line robustness (apoptosis / anoikis / antioxidant / glycolytic axes) acts only on this regulated-death layer — a cell full of ice is dead regardless of genotype, so S<sub>imm</sub> caps every line alike.</p>
+  </section>
+
+  <section id="gui">
+    <h2><span class="sn">09</span> Interface mapping</h2>
+    <p class="lead">Nothing in the view is decorative. Each element is a projection of a state variable the engine integrates.</p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>You see</th><th>It is</th></tr></thead>
+        <tbody>
+          <tr><td>Cell size &amp; crenation</td><td>V/V<sub>iso</sub> and membrane slack from KK transport (eq. 1–3)</td></tr>
+          <tr><td>Water-flux arrows</td><td>sign and magnitude of dV<sub>w</sub>/dt (eq. 1)</td></tr>
+          <tr><td>Extracellular CPA/salt density</td><td>freeze-concentration factor, Osme (eq. 5)</td></tr>
+          <tr><td>Phase-diagram inset</td><td>operating point &amp; ΔT<sub>sc</sub> gap on the liquidus (eq. 4, 6)</td></tr>
+          <tr><td>Intracellular ice crystals</td><td>P<sub>iif</sub> via SCN; nucleate at membrane, grow inward (eq. 7–8)</td></tr>
+          <tr><td>Rigid vs. wobbling membrane</td><td>gel fraction (eq. 10) — locks below T<sub>m</sub></td></tr>
+          <tr><td>Glassy sheen over the interior</td><td>vitrified fraction (eq. 11)</td></tr>
+          <tr><td>Filaments dissolving to monomers</td><td>polymerized fractions mt / actin / intf</td></tr>
+          <tr><td>Timeline: amber + blue curves</td><td>temperature and cell volume vs. protocol time</td></tr>
+          <tr><td>Outcome / cryo-signatures</td><td>S<sub>imm</sub>, S<sub>24</sub>, S<sub>72</sub>, F<sub>rec</sub> and the five D-terms (eq. 12–14)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>Render modes (Dark, Illustrative, Fluorescence, Phase-contrast) re-map the palette without changing the physics; the scientific overlay adds leader-line labels, the scale bar, and the phase diagram. Layer toggles switch individual compartments on and off, the way a confocal channel picker does.</p>
+  </section>
+
+  <section id="valid">
+    <h2><span class="sn">10</span> Calibration &amp; honest limits</h2>
+    <p>The model is anchored to one well-characterised system: <strong>hMSC + DMSO at 1&nbsp;°C/min → 35.4% 24-hour survival</strong>. Against that single anchor it reproduces, without being fitted to any of them, the inverted-U survival curve with an optimum near 1&nbsp;°C/min; the SCN cooling-rate crossover (P<sub>iif</sub> ≈ 0.08 at 1&nbsp;°C/min rising to 1.0 by ≥10&nbsp;°C/min); the biphasic Y-27632 dose response; z-VAD-fmk as the strongest single intervention; the protection of a 4&nbsp;°C post-thaw hold; and combination results such as 7% DMSO + 5% trehalose ≈ 10% DMSO at lower toxicity.</p>
+
+    <div class="note"><span class="tag">Scope</span><p>The new mechanisms are correct in <em>form</em> and literature-sourced in their <em>parameters</em>, but the per-CPA σ, E<sub>a</sub>, B, T<sub>g</sub>′, and the propagation, SCN and ROS constants are literature-typical values, not measurements of a specific line. Cross-cell-type predictive accuracy is unproven and requires bench data the model cannot supply. Three fitted coefficients have nothing behind them (the mobility-damage exponent, the grain-growth constant, the mechanical-squeeze coefficient); the built-in <em>Measure next?</em> tool ranks which parameter to calibrate first.</p></div>
+
+    <p>It is a mechanistic model with real parameters, meant to rank protocols and reason about mechanism. Calibrate before quoting a number.</p>
+  </section>
+
+  <section id="refs" class="refs">
+    <h2><span class="sn">11</span> References</h2>
+    <ol>
+      <li id="r1">Kedem O, Katchalsky A (1958). Thermodynamic analysis of the permeability of biological membranes to non-electrolytes. <span class="j">Biochim Biophys Acta</span> 27:229.</li>
+      <li id="r2">Kleinhans FW (1998). Membrane permeability modeling: Kedem–Katchalsky vs a two-parameter formalism. <span class="j">Cryobiology</span> 37:271.</li>
+      <li id="r3">Elliott JAW, Prickett RC, Elmoazzen HY, Porter KR, McGann LE (2007). A multisolute osmotic virial equation for solutions of interest in biology. <span class="j">J Phys Chem B</span> 111:1775.</li>
+      <li id="r4">Prickett RC, Elliott JAW, McGann LE (2011). Application of the multisolute osmotic virial equation to solutions containing electrolytes. <span class="j">J Phys Chem B</span> 115:14531.</li>
+      <li id="r5">Mazur P, Leibo SP, Chu EHY (1972). A two-factor hypothesis of freezing injury. <span class="j">Exp Cell Res</span> 71:345.</li>
+      <li id="r6">Fahy GM, et&nbsp;al. (1984). Vitrification as an approach to cryopreservation. <span class="j">Cryobiology</span> 21:407; Williams, Landel &amp; Ferry (1955), WLF.</li>
+      <li id="r7">Toner M, Cravalho EG, Karel M (1990). Thermodynamics and kinetics of intracellular ice formation. <span class="j">J Appl Phys</span> 67:1582.</li>
+      <li id="r8">Li Z, Shen L, Huang Y, Xiang X, Zhao G, Luan J (2020). Water-transport and intracellular ice formation of human adipose-derived stem cells during freezing. <span class="j">J Therm Biol</span> 93:102689. doi:10.1016/j.jtherbio.2020.102689.</li>
+      <li id="r9">Irimia D, Karlsson JOM (2002). Kinetics and mechanism of intercellular ice propagation in a micropatterned tissue construct. <span class="j">Biophys J</span> 82:1858.</li>
+      <li id="r10">Acker JP, McGann LE (2000/2003). Cell–cell contact affects membrane integrity after intracellular freezing. <span class="j">Cryobiology</span> 40:54; 46:197.</li>
+      <li id="r11">Dimova R (2014). Recent developments in the field of bending rigidity measurements on membranes. <span class="j">Adv Colloid Interface Sci</span> 208:225.</li>
+      <li id="r12">Ingber DE (1993, 2003). Cellular tensegrity. <span class="j">J Cell Sci</span> 104:613; 116:1157.</li>
+      <li id="r13">Muldrew K, McGann LE (1994). The osmotic rupture hypothesis of intracellular freezing injury. <span class="j">Biophys J</span> 66:532.</li>
+      <li id="r14">Stott SL, Karlsson JOM (2009). Visualization of intracellular ice formation using high-speed video cryomicroscopy. <span class="j">Cryobiology</span> 58:84.</li>
+      <li id="r15">Baust JG, Gao D, Baust JM (2009). Cryopreservation: an emerging paradigm change. <span class="j">Organogenesis</span> 5:90.</li>
+      <li id="r16">Bissoyi A, Pramanik K (2014). Role of the apoptosis pathway in cryopreservation-induced cell death in mesenchymal stem cells. <span class="j">Biopreserv Biobank</span> 12:246.</li>
+    </ol>
+  </section>
+
+  <footer>
+    CryoCell v0.6 · mechanistic virtual-cell model · equations grounded in the model source and REFERENCES.md · not a validated clinical predictor.
+  </footer>
+
+</div>

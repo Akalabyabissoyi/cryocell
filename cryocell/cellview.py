@@ -21,10 +21,23 @@ from PyQt6.QtWidgets import QWidget
 from .softbody import SoftBody
 from .icefield import IceField
 from .hpa import HPA, GEOMETRY
+from .model import dT_from_osm, osm_from_dT   # non-ideal liquidus for the phase-diagram inset
 
 # isotonic cell radius (um) of the calibration cell (Viso = 1800 um^3); the view
 # draws at a fixed px/um referenced to this, so different cell sizes are visible.
 R_ISO_REF = (3 * 1800.0 / (4 * math.pi)) ** (1 / 3)
+
+# Characteristic organelle dimensions in MICRONS (mid-range of published
+# mammalian values), so every organelle is drawn at its true physical size
+# relative to the whole cell via the fixed px/um scale — a mitochondrion is
+# ~2 um long in a ~15 um cell, not an eyeballed pixel blob. Mitochondrion is
+# (half-length, half-width). Refs: Cell Biology by the Numbers (Milo & Phillips).
+MITO_UM = (1.05, 0.30)          # ~2.1 x 0.6 um tubular mitochondrion
+ORG_UM = {"lysosomes": 0.25,    # ~0.5 um diameter
+          "peroxisomes": 0.19,  # ~0.4 um
+          "endosomes": 0.22,    # ~0.45 um
+          "lipid_drop": 0.32,   # ~0.65 um
+          "vesicles": 0.11}     # ~0.2 um transport/secretory vesicle
 
 # ---- palette (matches the HTML build) --------------------------------------
 C = dict(
@@ -55,6 +68,27 @@ def col(k, a=255):
             c = QColor(150, 160, 178)
         else:                                  # channel colours glow brighter
             c = c.lighter(140)
+    elif m == "dark":                          # AIDO-style: dark ground, green cytoplasm
+        if k == "surface0":
+            c = QColor(9, 13, 11)              # near-black background
+        elif k == "surface1":
+            c = QColor(46, 120, 78)           # cytoplasm (bright green)
+        elif k in ("surface2", "surface3"):
+            c = QColor(22, 70, 46)            # cytoplasm shadow
+        elif k == "text":
+            c = QColor(226, 236, 228)
+        elif k in _LINEK:
+            c = QColor(150, 178, 160)
+        elif k == "er":
+            c = QColor(120, 232, 182)         # mint tubules, stand out from cytoplasm
+        elif k == "actin":
+            c = QColor(168, 210, 150)         # free-ribosome speckle on green
+        elif k == "nucleus":
+            c = QColor(96, 156, 232)
+        elif k == "ice":
+            c = QColor(150, 190, 225)
+        else:
+            c = c.lighter(118)                # organelles pop a little on dark
     elif m == "phase":
         lum = int(0.30 * c.red() + 0.59 * c.green() + 0.11 * c.blue())
         if k in _SURF:                         # light-grey ground / cell body
@@ -87,6 +121,8 @@ LAYERS = [
     ("vesicles",     "Vesicles",              "vesicles"),
     ("cpa",          "CPA molecules",         None),
     ("ice",          "Extracellular ice",     None),
+    ("iif",          "Intracellular ice",     None),
+    ("waterflux",    "Water flux",            None),
 ]
 
 
@@ -117,8 +153,8 @@ class CellView(QWidget):
         self.zoom, self.pan = 1.5, QPointF(0, 0)
         self.visible = {k for k, _, _ in LAYERS}
         self.frame = None            # dict of scalars for the current instant
-        self.sci = False             # scientific overlay: scale bar, labels, cryo-stage ice
-        self.render_mode = "illustrative"   # illustrative | fluor | phase
+        self.sci = True              # scientific overlay: scale bar, labels, cryo-stage ice
+        self.render_mode = "dark"           # dark (default) | illustrative | fluor | phase
         self.sel = ""
         self.hover = ""
         self._drag_mode = None
@@ -145,15 +181,22 @@ class CellView(QWidget):
         self.centro_a = 2.05
         self.cpa_seed = np.stack([np.arange(220) * 2.39996,
                                   np.sqrt((np.arange(220) + 0.5) / 220)], axis=1)
+        # extracellular solute field (CPA + salt) placed in the unfrozen channel,
+        # so freeze-concentration during cooling and washout during dilution show
+        self.ecpa_seed = np.stack([rs.uniform(0, 2 * np.pi, 700),
+                                   rs.uniform(0, 1, 700),
+                                   rs.uniform(0, 1, 700)], axis=1)
         self.mt_seed = rs.uniform(-0.25, 0.25, 64)
         self.if_seed = rs.uniform(0, 2 * np.pi, 40)
-        # cytoplasmic crowding / ribosome texture: seeded polar field mapped into
-        # the deforming cell each frame (angle, radius, size, shade)
-        nrib = 620
+        # cytoplasmic crowding / ribosome texture: seeded polar field baked once
+        # into a cached pixmap (so density is nearly free per frame). ~1e7
+        # ribosomes fill a real cell; this reads as the dense granular cytoplasm
+        # of the reference rather than an empty interior. (angle, radius, size, shade)
+        nrib = 2400
         self.ribo = np.stack([rs.uniform(0, 2 * np.pi, nrib),
-                              np.sqrt(rs.uniform(0.02, 0.95, nrib)),
-                              rs.uniform(0.6, 1.9, nrib),
-                              rs.uniform(0.25, 0.75, nrib)], axis=1)
+                              np.sqrt(rs.uniform(0.02, 0.99, nrib)),
+                              rs.uniform(0.5, 1.4, nrib),
+                              rs.uniform(0.35, 0.85, nrib)], axis=1)
         # chromatin granularity inside the nucleus
         nchr = 130
         self.chrom_seed = np.stack([rs.uniform(0, 2 * np.pi, nchr),
@@ -175,7 +218,7 @@ class CellView(QWidget):
         self.sci = bool(on); self.update()
 
     def set_render_mode(self, mode):
-        self.render_mode = mode if mode in ("illustrative", "fluor", "phase") else "illustrative"
+        self.render_mode = mode if mode in ("illustrative", "fluor", "phase", "dark") else "illustrative"
         self.update()
 
     def _ribo_pixmap(self, mode):
@@ -189,10 +232,10 @@ class CellView(QWidget):
         base = col("er") if mode == "fluor" else col("actin")
         p.setPen(Qt.PenStyle.NoPen); c0 = D / 2
         for a, rf, sz, sh in self.ribo:
-            c = QColor(base); c.setAlpha(int((46 if mode == "fluor" else 34) * sh))
+            c = QColor(base); c.setAlpha(int((58 if mode == "fluor" else 55) * sh))
             p.setBrush(c)
             p.drawEllipse(QPointF(c0 + math.cos(a) * R0 * rf, c0 + math.sin(a) * R0 * rf),
-                          sz * 0.9, sz * 0.9)
+                          sz * 0.85, sz * 0.85)
         p.end()
         self._ribo_pix[mode] = pix
         return pix
@@ -235,15 +278,27 @@ class CellView(QWidget):
         # shape rather than wobbling. Existing folds are preserved because the
         # freeze acts on motion, not on the bending set-point.
         gel = f["gel"]
-        damp_g  = 0.88 * (1 - 0.80 * gel)
-        noise_g = (0.055 * slack + 0.005) * (1 - 0.92 * gel)
+        # Below Tm the bilayer is in the ordered gel (Lβ') phase — a 2D solid:
+        # undulations are quenched (amplitude ~ sqrt(kT/kappa)), lateral lipid
+        # remodelling and cortex flow cease, and the contour locks into the
+        # (crenated) shape it froze in. Ramp the freeze with the gel fraction, so
+        # cooling through Tm visibly stiffens the membrane and a stored cell holds
+        # a rigid shape instead of wobbling like a fluid vesicle.
+        damp_g  = 0.88 * (1 - 0.95 * gel)              # velocity killed in gel
+        noise_g = (0.055 * slack + 0.005) * (1 - 0.98 * gel)   # thermal jiggle quenched
+        kT_g = kT * (1 - 0.70 * gel)                   # active tension remodelling stops
+        kC_g = kC * (1 - 0.85 * gel)                   # actin cortex frozen out
         self.sb.update_blebs(f["bleb"])
         pocket = self.ice.pocket_radius if (f["frozen"] and self.ice.active) else None
-        steps = 22 if self._settle > 0 else 7
-        if self._settle > 0: self._settle -= steps
+        if self._settle > 0:
+            steps = 22; self._settle -= 22
+        elif gel > 0.80:
+            steps = 0                                  # solid gel: hold shape, no dynamics
+        else:
+            steps = 7
         for _ in range(steps):
-            self.sb.step(L0, kT, kB, 0.60, math.pi * R * R, damp_g, slack,
-                         k_cortex=kC, pocket_r=pocket, crystals=crystals,
+            self.sb.step(L0, kT_g, kB, 0.60, math.pi * R * R, damp_g, slack,
+                         k_cortex=kC_g, pocket_r=pocket, crystals=crystals,
                          noise=noise_g, external=self._ext)
             Rn = self.R0 * 0.40 * max(f["Vnuc"], 0.1) ** (1 / 3)
             self.nuc.step(2 * math.pi * Rn / self.nuc.n, 0.11, 0.30, 0.42,
@@ -411,9 +466,14 @@ class CellView(QWidget):
                         q.drawLine(S(x0 + ix * spike * 0.5, y0 + iy * spike * 0.5), S(bx, by))
             q.restore()
         else:
-            q.save(); q.setPen(Qt.PenStyle.NoPen); q.setBrush(col("surface1"))
+            # subtle cell shadow — kept dark in AIDO mode so it blends into the ground
+            q.save(); q.setPen(Qt.PenStyle.NoPen)
+            q.setBrush(col("surface0" if self.render_mode == "dark" else "surface1"))
             r = self.sb.radii().max() * 1.5
             q.drawEllipse(S(0, 0), r * Z, r * Z); q.restore()
+
+        # extracellular CPA / solute in the unfrozen channel (freeze-concentration)
+        self._draw_extracellular_cpa(q, f)
 
         # ---- cell body
         path = self._path(self.sb.p)
@@ -446,6 +506,8 @@ class CellView(QWidget):
         q.restore()
 
         self._draw_membrane(q, f, path, rmean)
+        self._draw_ice_penetration(q, f, rmean)
+        self._draw_water_flux(q, f, rmean)
         self._draw_overlay(q, f, px_um, rmean)
         q.end()
 
@@ -457,6 +519,166 @@ class CellView(QWidget):
         for i in range(n):
             p.quadTo(S(pts[i][0], pts[i][1]), mid(i, (i + 1) % n))
         p.closeSubpath(); return p
+
+    def _draw_extracellular_cpa(self, q, f):
+        """Extracellular CPA + salt in the space around the cell. Density tracks
+        the extracellular osmolality (Osme): sparse in isotonic medium, crowding
+        as the unfrozen channel freeze-concentrates during cooling, and thinning
+        again on warming/dilution — so the transmembrane CPA gradient is visible
+        against the intracellular CPA drawn inside the cell."""
+        if "cpa" not in self.visible:
+            return
+        S, Z = self._to_screen, self.zoom
+        osme = float(f.get("Osme", 1.0))
+        dens = float(np.clip((osme - 0.8) / 9.0, 0.03, 1.0))    # 0 isotonic → 1 freeze-conc.
+        n = int(dens * len(self.ecpa_seed))
+        if n <= 0:
+            return
+        thetas = self.ecpa_seed[:n, 0]
+        memb = self.sb.radius_at(thetas)
+        active = self.ice.active and f.get("frozen", False)
+        if active:                                              # confined to the unfrozen channel
+            outer = np.minimum(self.ice.pocket_radius(thetas), memb * 3.0)
+        else:                                                   # surrounding medium
+            outer = memb * 1.6
+        cpa_c = col("cpa", 165); salt_c = col("ice", 150)
+        q.setPen(Qt.PenStyle.NoPen)
+        for k in range(n):
+            m = float(memb[k]); o = float(outer[k])
+            if o <= m + 1.0:
+                continue
+            a = float(thetas[k])
+            rr = m + (o - m) * (0.06 + 0.9 * float(self.ecpa_seed[k, 1]))
+            grow = 0.85 + 0.5 * dens                           # heavier dots when concentrated
+            if float(self.ecpa_seed[k, 2]) < 0.68:             # CPA molecule
+                q.setBrush(cpa_c); rad = 1.7 * Z * grow
+            else:                                              # salt ion (rest of the solution)
+                q.setBrush(salt_c); rad = 1.05 * Z * grow
+            q.drawEllipse(S(math.cos(a) * rr, math.sin(a) * rr), rad, rad)
+
+    def _draw_ice_penetration(self, q, f, rmean):
+        """Without CPA, the extracellular ice front breaches the plasma membrane
+        and seeds intracellular ice (surface-catalysed nucleation through membrane
+        defects; Mazur 1965, Toner 1990). Jagged ice fingers cross the membrane
+        where P_iif is high. A cryoprotectant keeps the membrane a barrier and
+        depresses nucleation, so the fingers vanish (P_iif → 0)."""
+        if not ("iif" in self.visible and self.ice.active and f.get("frozen", False)):
+            return
+        pf = float(np.clip(f.get("Piif", 0.0), 0, 1))
+        if pf < 0.25:                                   # protected: no penetration
+            return
+        S, Z = self._to_screen, self.zoom
+        ic = col("ice", int(200 + 55 * pf))
+        n = int(3 + pf * 7)
+        for j in range(n):
+            a = j / n * 2 * math.pi + 0.4
+            memb = float(self.sb.radius_at(np.array([a]))[0])
+            front = float(self.ice.pocket_radius(np.array([a]))[0])
+            r_out = max(front, memb * 1.05)             # start at the ice front, outside
+            r_in = memb * (0.45 - 0.20 * pf)            # penetrate into the cytoplasm
+            ca, sa = math.cos(a), math.sin(a); ta, tb = -sa, ca
+            q.setPen(QPen(ic, max(1.2, 2.0 * Z * pf))); q.setBrush(Qt.BrushStyle.NoBrush)
+            p = QPainterPath(S(ca * r_out, sa * r_out)); steps = 7
+            for s in range(1, steps + 1):
+                t = s / steps; rr = r_out + (r_in - r_out) * t
+                off = math.sin(t * math.pi * 3.0) * memb * 0.05 * (1 - t)
+                p.lineTo(S(ca * rr + ta * off, sa * rr + tb * off))
+            q.drawPath(p)
+            tipr = r_in + (r_out - r_in) * 0.22         # side dendrites near the tip
+            for sgn in (-1, 1):
+                q.drawLine(S(ca * tipr, sa * tipr),
+                           S(ca * tipr + ta * sgn * memb * 0.08, sa * tipr + tb * sgn * memb * 0.08))
+            q.setBrush(col("crit", 170)); q.setPen(Qt.PenStyle.NoPen)  # membrane breach
+            q.drawEllipse(S(ca * memb, sa * memb), 2.6 * Z, 2.6 * Z)
+
+    def _draw_water_flux(self, q, f, rmean):
+        """Osmotic water flux across the membrane — the engine that drives volume
+        change. Efflux (arrows out) as the cell dehydrates during CPA loading and
+        freeze-concentration; influx (arrows in) as it rehydrates on dilution.
+        Magnitude from the model's volume rate of change (dVw)."""
+        if "waterflux" not in self.visible:
+            return
+        dvw = float(f.get("dVw", 0.0))
+        if abs(dvw) < 0.004:
+            return
+        S, Z = self._to_screen, self.zoom
+        mag = float(np.clip(abs(dvw) / 0.06, 0.25, 1.0))
+        out = dvw < 0                                  # water leaving the cell
+        wcol = QColor(64, 150, 226)                    # water blue
+        wcol.setAlpha(int(150 + 90 * mag))
+        q.setPen(QPen(wcol, max(1.4, 2.2 * Z * mag)))
+        L = rmean * (0.16 + 0.20 * mag)                # arrow length
+        for k in range(10):
+            a = k / 10 * 2 * math.pi + 0.31
+            rm = float(self.sb.radius_at(np.array([a]))[0])
+            ca, sa = math.cos(a), math.sin(a)
+            if out:                                    # tail just inside → tip outside
+                x0, y0 = rm * 0.86, rm * 0.86
+                x1, y1 = (rm + L), (rm + L)
+                tail = S(ca * x0, sa * y0); tip = S(ca * x1, sa * y1)
+            else:                                      # tail outside → tip just inside
+                x0, y0 = (rm + L), (rm + L)
+                x1, y1 = rm * 0.86, rm * 0.86
+                tail = S(ca * x0, sa * y0); tip = S(ca * x1, sa * y1)
+            q.drawLine(tail, tip)
+            ang = math.atan2(tip.y() - tail.y(), tip.x() - tail.x()); hs = 4 + 4 * mag
+            q.setBrush(wcol); q.setPen(Qt.PenStyle.NoPen)
+            q.drawPolygon(QPolygonF([tip,
+                QPointF(tip.x() - hs * math.cos(ang - 0.5), tip.y() - hs * math.sin(ang - 0.5)),
+                QPointF(tip.x() - hs * math.cos(ang + 0.5), tip.y() - hs * math.sin(ang + 0.5))]))
+            q.setPen(QPen(wcol, max(1.4, 2.2 * Z * mag)))
+
+    def _draw_phase_diagram(self, q, f):
+        """Inset phase diagram: the extracellular solution rides the liquidus as it
+        freeze-concentrates. Plots the non-ideal freezing-point-depression curve
+        and the current (osmolality, temperature) operating point."""
+        w, h = self.width(), self.height()
+        bw, bh = 148, 104
+        x0, y0 = 12, h - bh - 34            # bottom-left, above the scale bar
+        q.setBrush(col("surface1", 235)); q.setPen(QPen(col("border"), 1))
+        q.drawRoundedRect(QRectF(x0, y0, bw, bh), 6, 6)
+        pl, pt, pr, pb = x0 + 30, y0 + 16, x0 + bw - 8, y0 + bh - 20
+        OSM_MAX, T_MIN = 12.0, -22.0                    # axes ranges (osmol/L, °C)
+        def PX(osm): return pl + (pr - pl) * min(osm, OSM_MAX) / OSM_MAX
+        def PY(T):   return pt + (pb - pt) * min(max(-T, 0), -T_MIN) / (-T_MIN)
+        q.setPen(QPen(col("muted"), 1))
+        q.drawLine(QPointF(pl, pt), QPointF(pl, pb)); q.drawLine(QPointF(pl, pb), QPointF(pr, pb))
+        # liquidus curve T = -dT_from_osm(osm): below it, ice + freeze-concentrated brine
+        q.setPen(QPen(col("ice"), 1.8)); path = None
+        pts = []
+        for j in range(41):
+            osm = OSM_MAX * j / 40; T = -dT_from_osm(osm)
+            if T < T_MIN: break
+            pts.append(QPointF(PX(osm), PY(T)))
+        for j in range(1, len(pts)):
+            q.drawLine(pts[j - 1], pts[j])
+        # extracellular point (on the liquidus — in equilibrium with external ice)
+        osm, T = float(f.get("Osme", 1.0)), float(f.get("T", 22.0))
+        q.setBrush(col("ice")); q.setPen(QPen(col("ice").darker(140), 1))
+        q.drawEllipse(QPointF(PX(osm), PY(T)), 3.5, 3.5)
+        # intracellular supercooling — the SCN driver (Toner 1990; Li et al. 2020).
+        # The cell lags below its own liquidus by dTsc; when that gap is large the
+        # surface-catalysed nucleation rate J ~ exp(-K/(T^3 dTsc^2)) explodes → IIF.
+        dTsc = float(f.get("dTsc", 0.0))
+        if dTsc > 0.2 and T < 0:
+            osm_i = osm_from_dT(max(0.0, -T - dTsc))    # intracellular osmolality
+            Tm_i = -dT_from_osm(osm_i)                   # its equilibrium liquidus point
+            xi = PX(osm_i)
+            hot = dTsc > 4.0                              # SCN firing regime
+            gc = col("crit") if hot else col("warn")
+            q.setPen(QPen(gc, 1.6))                       # supercooling gap up to the liquidus
+            q.drawLine(QPointF(xi, PY(T)), QPointF(xi, PY(Tm_i)))
+            q.setBrush(col("cpa")); q.setPen(QPen(col("cpa").darker(140), 1))
+            q.drawEllipse(QPointF(xi, PY(T)), 3.5, 3.5)   # supercooled intracellular point
+            q.setPen(gc); q.setFont(QFont("", 6, QFont.Weight.Bold))
+            q.drawText(QRectF(x0, pt - 2, bw - 6, 10), Qt.AlignmentFlag.AlignRight,
+                       f"ΔTsc {dTsc:.0f}°" + (" · SCN→IIF" if hot else ""))
+        q.setPen(col("text2")); q.setFont(QFont("", 7))
+        q.drawText(QRectF(x0, y0 + 1, bw, 12), Qt.AlignmentFlag.AlignHCenter, "Liquidus · supercooling (SCN)")
+        q.setFont(QFont("", 6)); q.setPen(col("muted"))
+        q.drawText(QPointF(x0 + 2, pb + 9), "osmolality →")
+        q.save(); q.translate(x0 + 9, pb); q.rotate(-90)
+        q.drawText(QRectF(0, 0, pb - pt, 10), Qt.AlignmentFlag.AlignLeft, "T (°C)"); q.restore()
 
     def _draw_interior(self, q, f, rmean, px_um):
         S, Z = self._to_screen, self.zoom
@@ -505,16 +727,40 @@ class CellView(QWidget):
                          S(math.cos(a) * rr, math.sin(a) * rr))
                 q.drawPath(p)
 
-        # ER — a tubular network around the nucleus
-        if "er" in vis:
-            alpha = int(np.clip(70 + 150 * f["caER"], 40, 235))
-            q.setPen(QPen(col("er", alpha), max(1.0, 1.9 * Z)))
-            for k in range(9):
-                a0 = k * 0.70
+        # ER — perinuclear rough-ER cisternae (membrane sheets studded with
+        # ribosomes) continuous with the nuclear envelope, plus peripheral smooth
+        # tubules reaching toward the cortex. Ca-store depletion fades it.
+        if "er" in vis and self.render_mode != "phase":
+            alpha = int(np.clip(120 + 110 * f["caER"], 70, 240))
+            ercol = col("er", alpha); ribo = col("er", min(255, alpha + 25))
+            # nested perinuclear sheets (partial arcs, so it reads as stacks not rings)
+            for k in range(5):
+                a0 = k * 1.15; span = 4.4 + 0.3 * k; base_r = 0.44 + k * 0.043
+                p = QPainterPath(); studs = []
+                N = 60
+                for s in range(N + 1):
+                    th = a0 + span * s / N
+                    env = float(self.sb.radius_at(np.array([th]))[0])
+                    rr = env * (base_r + 0.017 * math.sin(s * 0.7 + k * 1.3))
+                    pt = S(math.cos(th) * rr, math.sin(th) * rr)
+                    p.moveTo(pt) if s == 0 else p.lineTo(pt)
+                    if s % 3 == 0: studs.append(pt)
+                q.setBrush(Qt.BrushStyle.NoBrush)
+                q.setPen(QPen(ercol, max(0.9, 1.5 * Z))); q.drawPath(p)
+                if Z > 0.6:                              # ribosomes studding the rough ER
+                    q.setPen(Qt.PenStyle.NoPen); q.setBrush(ribo)
+                    rdot = max(0.8, 1.05 * Z)
+                    for pt in studs: q.drawEllipse(pt, rdot, rdot)
+            # peripheral smooth-ER tubules
+            q.setBrush(Qt.BrushStyle.NoBrush)
+            q.setPen(QPen(col("er", int(alpha * 0.65)), max(0.7, 1.0 * Z)))
+            for k in range(8):
+                a0 = k * 0.79
                 p = QPainterPath()
-                for s in range(24):
-                    th = a0 + s * 0.085
-                    rr = float(self.sb.radius_at(np.array([th]))[0]) * (0.40 + 0.16 * math.sin(s * .8 + k))
+                for s in range(18):
+                    th = a0 + s * 0.045
+                    env = float(self.sb.radius_at(np.array([th]))[0])
+                    rr = env * (0.60 + s * 0.019 + 0.03 * math.sin(s * 1.1 + k))
                     pt = S(math.cos(th) * rr, math.sin(th) * rr)
                     p.moveTo(pt) if s == 0 else p.lineTo(pt)
                 q.drawPath(p)
@@ -541,14 +787,17 @@ class CellView(QWidget):
             for dd in (-4, 4):
                 q.drawEllipse(S(cxp + dd, cyp + dd * 0.4), 4.5 * Z, 2.2 * Z)
 
-        # small organelles
+        # small organelles — sized in true microns via px_um, so each keeps its
+        # real-world aspect ratio to the whole cell. Organelles lose less water
+        # than the cell, so they shrink only mildly under dehydration (Vn^(1/6)).
         vm, psi = f["Vmito"], f["dPsi"]
+        dehyd = max(f.get("Vn", 1.0), 0.05) ** (1 / 6)
         for o in self.org:
             if o.kind not in vis: continue
             pt = S(o.x, o.y)
             if o.kind == "mitochondria":
-                L = 11.5 * vm ** (1 / 3) * o.scale
-                W = 5.0 * vm ** (1 / 3) * o.scale * (0.6 + 0.55 * min(vm, 2.4))
+                L = MITO_UM[0] * px_um * vm ** (1 / 3) * o.scale * dehyd
+                W = MITO_UM[1] * px_um * vm ** (1 / 3) * o.scale * dehyd * (0.7 + 0.5 * min(vm, 2.4))
                 cc = col("mito", int(90 + 140 * psi)) if psi > .5 else col("muted", 150)
                 q.save(); q.translate(pt); q.rotate(math.degrees(o.rot))
                 q.setBrush(cc); q.setPen(QPen(cc.darker(130), max(0.8, 1.3 * Z)))
@@ -570,8 +819,7 @@ class CellView(QWidget):
             else:
                 key = dict(lysosomes="lyso", peroxisomes="perox", endosomes="endo",
                            lipid_drop="lipid", vesicles="vesicle").get(o.kind, "muted")
-                rr = dict(lysosomes=6.0, peroxisomes=4.2, endosomes=5.0,
-                          lipid_drop=5.4, vesicles=3.0)[o.kind] * o.scale
+                rr = ORG_UM[o.kind] * px_um * o.scale * dehyd
                 q.setBrush(col(key, 190)); q.setPen(QPen(col(key), max(0.7, 1.1 * Z)))
                 q.drawEllipse(pt, rr * Z, rr * Z)
 
@@ -625,6 +873,38 @@ class CellView(QWidget):
                 for k, (aa, rr) in enumerate([(0.8, .38), (2.6, .30), (4.7, .34)]):
                     q.drawEllipse(self._to_screen(math.cos(aa) * rn * rr, math.sin(aa) * rn * rr),
                                   rn * 0.20 * Z, rn * 0.18 * Z)
+
+            # ---- intracellular ice in the nucleus (freeze-substitution look) ----
+            # Yu, Marquez-Curtis & Elliott 2026 (npj Imaging): visible IIF displaces
+            # nuclear material into dark angular edges around light "hole"-like voids.
+            #   small ice = many voids sectioned by dark edges (crystals >~1.1 um)
+            #   big ice   = one large void with a single dark rim, material at border
+            iif = float(np.clip(f.get("Piif", 0.0), 0, 1))
+            iceph = f.get("frozen", False) or f.get("phase", "") in ("store", "warm", "melt")
+            if iif > 0.12 and iceph and "iif" in vis:
+                void = QColor(250, 246, 248)               # unstained ice-crystal void
+                edge = col("nucleus").darker(160)          # condensed material at borders
+                rsq = np.random.RandomState(97)
+                if iif > 0.62:                             # single large crystal
+                    rv = rn * (0.30 + 0.36 * iif)
+                    poly = QPolygonF([self._to_screen(
+                        math.cos(t) * rv * (0.82 + 0.34 * rsq.rand()),
+                        math.sin(t) * rv * (0.82 + 0.34 * rsq.rand()))
+                        for t in np.linspace(0, 2 * math.pi, 11)])
+                    q.setBrush(void); q.setPen(QPen(edge, max(1.4, 2.3 * Z)))
+                    q.drawPolygon(poly)
+                else:                                      # many small crystals
+                    q.setPen(QPen(edge, max(0.9, 1.4 * Z)))
+                    for _ in range(int(4 + 16 * iif)):
+                        a = rsq.uniform(0, 2 * math.pi); r0 = math.sqrt(rsq.rand()) * rn * 0.80
+                        cx0, cy0 = math.cos(a) * r0, math.sin(a) * r0
+                        sz = rn * (0.06 + 0.11 * rsq.rand()) * (0.8 + 0.6 * iif)
+                        m = int(rsq.randint(4, 7))         # angular ice facets
+                        poly = QPolygonF([self._to_screen(
+                            cx0 + math.cos(t) * sz * (0.7 + 0.5 * rsq.rand()),
+                            cy0 + math.sin(t) * sz * (0.7 + 0.5 * rsq.rand()))
+                            for t in np.linspace(0, 2 * math.pi, m + 1)])
+                        q.setBrush(void); q.drawPolygon(poly)
             q.restore()
 
             # ---- LINC complex & nuclear mechanotransduction ----
@@ -665,18 +945,29 @@ class CellView(QWidget):
                 q.setPen(Qt.PenStyle.NoPen); q.setBrush(col("path", int(55 * min(force, 1))))
                 q.drawEllipse(self._to_screen(0, 0), rn * 0.42 * Z, rn * 0.42 * Z)
 
-        # intracellular ice
-        if f["Piif"] > 0.02:
-            q.setPen(QPen(col("ice", int(255 * min(f["Piif"], 1))), max(1.2, 1.8 * Z)))
-            q.setBrush(col("ice", int(70 * f["Piif"])))
-            nX = int(f["Piif"] * 11)
+        # intracellular ice — angular crystals nucleated through the cytoplasm when
+        # the cell is UNPROTECTED (high P_iif). CPA drives P_iif → 0, so this whole
+        # field is the visual signature of the "no protection" freezing regime and
+        # vanishes when a cryoprotectant is present.
+        if f["Piif"] > 0.05 and "iif" in vis:
+            pf = float(np.clip(f["Piif"], 0, 1))
+            nX = int(6 + pf * 46)
+            rsq = np.random.RandomState(23)
+            q.setPen(QPen(col("ice", int(170 + 80 * pf)), max(1.0, 1.5 * Z)))
             for k in range(nX):
-                a = k * 2.39996; r2 = math.sqrt((k + .5) / 12) * rmean * .7
+                a = k * 2.39996
+                # surface-catalysed nucleation (Li et al. 2020; Toner 1990): ice
+                # nucleates at the inner membrane surface and grows inward, so it
+                # is densest at the periphery and thins toward the centre.
+                r2 = rmean * (0.30 + 0.66 * rsq.rand() ** 0.45)
                 cx, cy = math.cos(a) * r2, math.sin(a) * r2
-                cr = 3 + f["Piif"] * 9
-                q.drawPolygon(QPolygonF([self._to_screen(cx + math.cos(t) * cr,
-                                                         cy + math.sin(t) * cr)
-                                         for t in np.arange(6) * math.pi / 3 + .3]))
+                cr = (2.2 + pf * 6.5) * (0.6 + 0.8 * rsq.rand())
+                m = int(rsq.randint(5, 7))                 # angular ice facets
+                q.setBrush(col("ice", int(55 + 95 * pf)))
+                q.drawPolygon(QPolygonF([self._to_screen(
+                    cx + math.cos(t) * cr * (0.7 + 0.5 * rsq.rand()),
+                    cy + math.sin(t) * cr * (0.7 + 0.5 * rsq.rand()))
+                    for t in np.arange(m) * 2 * math.pi / m + 0.3]))
 
     def _draw_membrane(self, q, f, path, rmean):
         Z = self.zoom
@@ -857,16 +1148,22 @@ class CellView(QWidget):
         # nucleus (centre)
         label(cx, cy, 24, h * 0.40,
               ["Nucleus", f"{f['Vnuc']*100:.0f}% resting vol"], "nucleus")
-        # mitochondria — pick a drawn one
+        # mitochondria — pick a drawn one; report its true physical size
         mpt = next((o for o in self.org if o.kind == "mitochondria"), None)
         if mpt is not None:
-            mp = S(mpt.x, mpt.y)
-            label(mp.x(), mp.y(), w - 4, h * 0.34,
-                  ["Mitochondria", f"ΔΨm {f['dPsi']*100:.0f}% · MPT {f['mpt']*100:.0f}%"], "mito")
-        # cytosol / CPA (interior)
+            mp = S(mpt.x, mpt.y); ms = f["Vmito"] ** (1 / 3)
+            label(mp.x(), mp.y(), w - 4, h * 0.30,
+                  ["Mitochondria", f"{2*MITO_UM[0]*ms:.1f} × {2*MITO_UM[1]*ms:.1f} µm",
+                   f"ΔΨm {f['dPsi']*100:.0f}% · MPT {f['mpt']*100:.0f}%"], "mito")
+        # cytoskeleton — ties the cell view to the FA·LINC mechanics (cold-labile
+        # actin/MT depolymerise; vimentin persists)
+        label(cx - Rs * 0.45, cy - Rs * 0.55, 24, h * 0.22,
+              ["Cytoskeleton", f"actin {f.get('actin',0)*100:.0f}% · MT {f.get('mt',0)*100:.0f}%",
+               f"vimentin {f.get('intf',0)*100:.0f}% (cold-stable)"], "ifil")
+        # cytosol / CPA (interior) — with the transmembrane CPA gradient (in vs out)
         label(cx - Rs * 0.35, cy + Rs * 0.35, 24, h * 0.62,
-              ["Cytosol", f"CPA {f['Cin']:.1f} M · glass {f.get('glass',0)*100:.0f}%",
-               f"protein {f.get('prot',1)*100:.0f}% native"], "cpa")
+              ["Cytosol", f"CPA in {f['Cin']:.1f} M · out {f.get('Cout',0):.1f} M",
+               f"glass {f.get('glass',0)*100:.0f}% · protein {f.get('prot',1)*100:.0f}%"], "cpa")
         # extracellular ice (outside, when frozen)
         if self.ice.active:
             ax, ay = cx + Rs * d + 30, cy - Rs * d - 20
@@ -885,3 +1182,7 @@ class CellView(QWidget):
             q.setBrush(col(ck)); q.setPen(Qt.PenStyle.NoPen)
             q.drawEllipse(QPointF(lx, yy), 4, 4)
             q.setPen(col("text2")); q.drawText(QPointF(lx + 10, yy + 4), nm)
+
+        # phase-diagram inset last, so it sits on top of any leader labels
+        if self.ice.active or f.get("T", 22) < 5:
+            self._draw_phase_diagram(q, f)

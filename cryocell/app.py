@@ -44,6 +44,16 @@ PRESETS = {
                                          apop_resist=0.75, anoikis_resist=0.80, glycolytic=0.60, antioxidant=0.35),
     "Cell line — A549":             dict(Viso=1100, cyto=0.85, sterol=28, adhesion="suspension",
                                          apop_resist=0.40, anoikis_resist=0.55, glycolytic=0.55, antioxidant=0.85),
+    # Adipose-derived MSC (hADSC), the cell type characterised by Li et al. 2020
+    # (J Therm Biol 93:102689, doi:10.1016/j.jtherbio.2020.102689) for water
+    # transport + surface-catalysed nucleation. Encoded as a PRIMARY-MSC
+    # LITERATURE PRIOR (size / permeability / primary-cell phenotype), NOT the
+    # paper's exact fitted Lp, Ea, Omega, kappa — those numeric values were not
+    # available to encode. Provenance flag: literature_prior, not cell-type-validated.
+    "Cell line — hADSC (Li 2020, prior)": dict(Viso=1700, cyto=1.30, sterol=22, lp=0.25,
+                                         adhesion="suspension",
+                                         apop_resist=0.0, anoikis_resist=0.0,
+                                         glycolytic=0.0, antioxidant=0.0),
 }
 
 # (attr, label, min, max, step, decimals, log)
@@ -258,9 +268,10 @@ class TimelineBar(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedHeight(74); self.setAutoFillBackground(True); self.setMouseTracking(True)
-        self.T = []; self.phase = []; self.pos = 0; self._drag = False
-    def set_data(self, T, phase):
-        self.T = list(T); self.phase = list(phase); self.update()
+        self.T = []; self.phase = []; self.Vn = []; self.pos = 0; self._drag = False
+    def set_data(self, T, phase, Vn=None):
+        self.T = list(T); self.phase = list(phase)
+        self.Vn = list(Vn) if Vn is not None else []; self.update()
     def set_pos(self, i):
         self.pos = i; self.update()
     def _xf(self, i, w, pad):
@@ -287,6 +298,17 @@ class TimelineBar(QWidget):
             x, y = self._xf(i, w, pad), yT(t)
             path.moveTo(x, y) if i == 0 else path.lineTo(x, y)
         q.drawPath(path)
+        # cell-volume trace (shrink-then-swell on loading; deep dehydration on freezing)
+        if self.Vn:
+            yV = lambda v: 6 + (1 - min(max(v, 0), 1.5) / 1.5) * (h - 24)
+            q.setPen(QPen(QColor(64, 150, 226), 1.6)); vpath = QPainterPath()
+            for i, v in enumerate(self.Vn):
+                x, y = self._xf(i, w, pad), yV(v)
+                vpath.moveTo(x, y) if i == 0 else vpath.lineTo(x, y)
+            q.drawPath(vpath)
+            q.setFont(QFont("", 7, QFont.Weight.Bold))
+            q.setPen(QColor("#e0a63a")); q.drawText(QPointF(w - 74, 14), "T")
+            q.setPen(QColor(64, 150, 226)); q.drawText(QPointF(w - 60, 14), "volume")
         xs = self._xf(min(self.pos, n - 1), w, pad)
         q.setPen(QPen(QColor(C["nucleus"]), 2)); q.drawLine(QPointF(xs, 3), QPointF(xs, h - 16))
         q.setBrush(QColor(C["nucleus"])); q.setPen(Qt.PenStyle.NoPen)
@@ -320,122 +342,253 @@ class MolecularView(QWidget):
                 Qt.AlignmentFlag.AlignCenter, "Run a protocol"); return
         w, h = self.width(), self.height()
         X = lambda fx: fx * w; Y = lambda fy: fy * h
+
+        # ---- model state → mechanical drivers along the FA–LINC axis ----
         FA = f.get("FA", 0); ten = f.get("tension", 0); act = f.get("actin", 0)
-        rock = f.get("rock", 0); yap = f.get("yapN", 0); force = f.get("pMLC", 0) * (0.3 + 0.7 * act)
-        engaged = clamp(FA / 0.5, 0, 1)              # adhesion engagement (suspension FA0 is low)
-        talin_stretch = clamp(ten / 0.5, 0, 1) * (0.3 + 0.7 * engaged)
+        mt = f.get("mt", 0); intf = f.get("intf", 0); rock = f.get("rock", 0)
+        yap = f.get("yapN", 0); pMLC = f.get("pMLC", 0)
+        force = clamp(pMLC * (0.3 + 0.7 * act), 0, 1)
+        engaged = clamp(FA / 0.5, 0, 1)                 # adhesion engagement
+        Vn = f.get("Vn", 1.0)
+        shrink = clamp((1.0 - Vn) / 0.55, 0, 1)         # osmotic dehydration
+        iif = clamp(f.get("Piif", 0), 0, 1)             # intracellular-ice probability
+        frozen = f.get("frozen", False)
+        # Mazur (1963, 1972) two-factor hypothesis, expressed mechanically on this axis:
+        #   slow cooling  → extracellular ice → dehydration/"solution effects" → shrink
+        #   fast cooling  → intracellular ice formation (IIF) → filament/envelope rupture
+        sol_arm = shrink if iif < 0.6 else shrink * 0.4
+        iif_arm = iif if frozen else iif * 0.6
+        shatter = clamp(iif_arm, 0, 1)                  # network fragmentation
+        buckle = clamp(sol_arm, 0, 1)                   # slack / buckled filaments
+
         good = QColor(47, 192, 136); bad = QColor(224, 87, 79); amb = QColor(224, 166, 58)
-        def mix(a, b, t): return QColor(int(a.red()+(b.red()-a.red())*t),
-            int(a.green()+(b.green()-a.green())*t), int(a.blue()+(b.blue()-a.blue())*t))
-        def blob(cx, cy, r, col, label, sub=None, pP=False):
-            q.setBrush(col); q.setPen(QPen(col.darker(140), 1.5))
+        gold = QColor(198, 156, 74); violet = QColor(139, 127, 240)
+        ifcol = QColor(58, 58, 66); mtcol = QColor(86, 138, 190)
+        nuc_fill = QColor(247, 232, 150)               # euchromatin ground (as in the reference)
+        def mix(a, b, t):
+            t = clamp(t, 0, 1)
+            return QColor(int(a.red()+(b.red()-a.red())*t), int(a.green()+(b.green()-a.green())*t),
+                          int(a.blue()+(b.blue()-a.blue())*t))
+        def label(s, cx, cy, wd=90, col=None, sz=7, bold=True):
+            q.setPen(QColor(col or C["text"])); q.setFont(QFont("", sz, QFont.Weight.Bold if bold else QFont.Weight.Normal))
+            q.drawText(QRectF(cx-wd/2, cy-7, wd, 14), Qt.AlignmentFlag.AlignHCenter, s)
+        def blob(cx, cy, r, col, lab=None, pP=False):
+            q.setBrush(col); q.setPen(QPen(col.darker(150), 1.4))
             q.drawEllipse(QPointF(cx, cy), r, r)
-            q.setPen(QColor(C["text"])); q.setFont(QFont("", 8, QFont.Weight.Bold))
-            q.drawText(QRectF(cx-40, cy-7, 80, 14), Qt.AlignmentFlag.AlignHCenter, label)
-            if sub: q.setFont(QFont("", 7)); q.setPen(QColor(C["muted"]))
-            if sub: q.drawText(QRectF(cx-45, cy+r+1, 90, 12), Qt.AlignmentFlag.AlignHCenter, sub)
+            if lab: label(lab, cx, cy, 70, C["text"], 7)
             if pP:
-                q.setBrush(QColor(224,166,58)); q.setPen(Qt.PenStyle.NoPen)
-                q.drawEllipse(QPointF(cx+r*0.7, cy-r*0.7), 5, 5)
-                q.setPen(QColor("#3a2a00")); q.setFont(QFont("",7,QFont.Weight.Bold))
-                q.drawText(QRectF(cx+r*0.7-5, cy-r*0.7-6, 10, 12), Qt.AlignmentFlag.AlignCenter, "P")
+                q.setBrush(amb); q.setPen(Qt.PenStyle.NoPen)
+                q.drawEllipse(QPointF(cx+r*0.7, cy-r*0.7), 4.5, 4.5)
+        def rng(x0, y0, x1, y1):  # length of a segment
+            return math.hypot(x1-x0, y1-y0)
+        def perp(x0, y0, x1, y1):
+            dx, dy = -(y1-y0), (x1-x0); L = math.hypot(dx, dy) or 1; return dx/L, dy/L
 
-        # region labels (right margin) — matching the reference figure
+        # ---- actin filament: two beaded strands. `poly` is the polymerised
+        # fraction (S.actin) — as it falls (cold depolymerisation) the cable
+        # dissolves into scattered free G-actin monomers; buckles when the cell
+        # dehydrates (slack); gaps open where intracellular ice shatters it.
+        def actin(x0, y0, x1, y1, base, poly, weight=1.0):
+            poly = clamp(poly, 0, 1)
+            n = max(6, int(rng(x0, y0, x1, y1) / 6)); dx, dy = perp(x0, y0, x1, y1)
+            amp = 1.6 + 4.5 * buckle * weight
+            col = QColor(base); col.setAlpha(int(90 + 150 * poly))
+            mono = QColor(base); mono.setAlpha(75)
+            rs = np.random.RandomState(int(abs(x0 + y1 * 3)) % 9999)
+            q.setPen(Qt.PenStyle.NoPen)
+            for k in range(n):
+                t = k/(n-1)
+                if shatter*weight > 0.25 and (k % max(2, int(2+(1-shatter)*7)) == 0): continue
+                bx = x0+(x1-x0)*t + dx*math.sin(t*math.pi*3)*amp
+                by = y0+(y1-y0)*t + dy*math.sin(t*math.pi*3)*amp
+                if ((k*0.61803) % 1.0) <= poly:              # segment still polymerised
+                    q.setBrush(col)
+                    for s in (-1.6, 1.6): q.drawEllipse(QPointF(bx+dx*s, by+dy*s), 2.2, 2.2)
+                else:                                        # depolymerised → free monomer
+                    q.setBrush(mono)
+                    q.drawEllipse(QPointF(bx+rs.uniform(-10, 10), by+rs.uniform(-6, 6)), 1.8, 1.8)
+
+        # ---- intermediate filament: thin dark wavy line
+        def if_fil(x0, y0, x1, y1, col):
+            dx, dy = perp(x0, y0, x1, y1); p = QPainterPath(QPointF(x0, y0)); n = 14
+            for k in range(1, n+1):
+                t = k/n; a = math.sin(t*math.pi*4)*(3.0+2*buckle)
+                p.lineTo(QPointF(x0+(x1-x0)*t+dx*a, y0+(y1-y0)*t+dy*a))
+            q.setPen(QPen(col, 1.6)); q.setBrush(Qt.BrushStyle.NoBrush); q.drawPath(p)
+
+        # ---- microtubule: hollow dashed tube. `poly` (S.mt) is the polymerised
+        # fraction — the tube catastrophes from the plus-end (membrane side) inward
+        # as it falls, leaving scattered free tubulin dimers (cold-labile, like actin).
+        def mtub(x0, y0, x1, y1, base, poly):
+            poly = clamp(poly, 0, 1); dx, dy = perp(x0, y0, x1, y1)
+            L = rng(x0, y0, x1, y1); n = max(4, int(L/10))
+            col = QColor(base); col.setAlpha(int(70 + 160 * poly))
+            if poly > 0.12:                                  # intact segment from nucleus/MTOC end
+                xe, ye = x0+(x1-x0)*poly, y0+(y1-y0)*poly
+                for s in (-2.2, 2.2):
+                    q.setPen(QPen(col, 1.3)); q.drawLine(QPointF(x0+dx*s, y0+dy*s), QPointF(xe+dx*s, ye+dy*s))
+                q.setPen(QPen(col, 0.8))
+                for k in range(int(n*poly)):
+                    t = k/max(1, n-1); xx = x0+(x1-x0)*t; yy = y0+(y1-y0)*t
+                    q.drawLine(QPointF(xx+dx*2.2, yy+dy*2.2), QPointF(xx-dx*2.2, yy-dy*2.2))
+            if poly < 0.85:                                  # free tubulin where depolymerised
+                mc = QColor(base); mc.setAlpha(70); q.setBrush(mc); q.setPen(Qt.PenStyle.NoPen)
+                rs = np.random.RandomState(int(abs(x1 + y0 * 3)) % 9999)
+                for _ in range(int(9*(1-poly))):
+                    t = rs.uniform(min(poly, 0.95), 1.0); xx = x0+(x1-x0)*t; yy = y0+(y1-y0)*t
+                    q.drawEllipse(QPointF(xx+rs.uniform(-8, 8), yy+rs.uniform(-6, 6)), 1.8, 1.8)
+
+        def arrow(x0, y0, x1, y1, wgt, col):  # thick force arrow
+            q.setPen(QPen(col, wgt)); q.drawLine(QPointF(x0, y0), QPointF(x1, y1))
+            ang = math.atan2(y1-y0, x1-x0); s = 7+wgt
+            poly = QPolygonF([QPointF(x1, y1),
+                QPointF(x1-s*math.cos(ang-0.5), y1-s*math.sin(ang-0.5)),
+                QPointF(x1-s*math.cos(ang+0.5), y1-s*math.sin(ang+0.5))])
+            q.setBrush(col); q.setPen(Qt.PenStyle.NoPen); q.drawPolygon(poly)
+
+        # ================= NUCLEUS INTERIOR (top) =================
         q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8, QFont.Weight.Bold))
-        for fy, lab in [(0.80,"Focal-adhesion\nmechanosensing"),(0.50,"Cytoskeletal\nmechanotransduction"),
-                        (0.18,"Nuclear\nmechanotransduction")]:
-            for j,ln in enumerate(lab.split("\n")):
-                q.drawText(QRectF(w-118, Y(fy)+j*11, 112, 12), Qt.AlignmentFlag.AlignRight, ln)
+        q.drawText(QRectF(0, 2, w, 14), Qt.AlignmentFlag.AlignHCenter, "Nucleus interior")
+        nx, nyc, nrx, nry = X(0.50), Y(0.155), X(0.44)*(0.85+0.15*(1-shrink)), Y(0.125)*(0.8+0.2*(1-shrink))
+        q.setBrush(nuc_fill); q.setPen(QPen(violet.darker(120), 1.4))
+        q.drawEllipse(QPointF(nx, nyc), nrx, nry)
+        # euchromatin (open pink loops) + G-actin/F-actin inside
+        rs = np.random.RandomState(7)
+        q.setPen(QPen(QColor(214, 120, 170, 150), 1.3)); q.setBrush(Qt.BrushStyle.NoBrush)
+        for _ in range(9):
+            a = rs.uniform(0, 2*math.pi); rr = rs.uniform(0.15, 0.6)
+            cxp, cyp = nx+math.cos(a)*nrx*rr, nyc+math.sin(a)*nry*rr
+            q.drawArc(QRectF(cxp-7, cyp-4, 14, 8), 0, 300*16)
+        q.setBrush(QColor(150, 90, 200)); q.setPen(Qt.PenStyle.NoPen)   # G-actin monomers
+        for _ in range(7):
+            a = rs.uniform(0, 2*math.pi); rr = rs.uniform(0.1, 0.5)
+            q.drawEllipse(QPointF(nx+math.cos(a)*nrx*rr, nyc+math.sin(a)*nry*rr), 2.3, 2.3)
+        label("euchromatin", nx, nyc-nry*0.5, 90, QColor(150,70,120), 7)
+        label("G-actin", X(0.66), Y(0.075), 60, QColor(120,70,170), 7)
+        # heterochromatin clumps tethered to the lamina (LAD) around the rim
+        q.setBrush(QColor(120, 96, 40)); q.setPen(Qt.PenStyle.NoPen)
+        for k in range(12):
+            a = math.pi + k/11*math.pi   # lower rim, facing envelope
+            cxp, cyp = nx+math.cos(a)*nrx*0.86, nyc+math.sin(a)*nry*0.86
+            q.drawEllipse(QPointF(cxp, cyp), 4.5, 3.2)
+        label("heterochromatin", nx, nyc+nry*0.55, 110, QColor(90,70,30), 7)
 
-        # ---- ECM substrate (bottom) ----
+        # ================= NUCLEAR ENVELOPE + LINC =================
+        onm = Y(0.315); inm = Y(0.345)                 # outer / inner nuclear membrane
+        for my, nm in ((onm, "ONM"), (inm, "INM")):
+            q.setBrush(QColor(236, 206, 120)); q.setPen(QPen(QColor(180, 150, 70), 1))
+            q.drawRoundedRect(QRectF(X(0.10), my-4, X(0.80), 8), 4, 4)
+            label(nm, X(0.955)*w/w*0.0+X(0.955), my, 40, QColor(150,120,60), 7)
+        label("Perinuclear space", X(0.86), (onm+inm)/2+16, 120, C["muted"], 7)
+        # nuclear lamina (mesh lining the INM), loads amber → red under mechanical force
+        lam = mix(violet, bad, force)
+        q.setPen(QPen(lam, 2)); q.drawLine(QPointF(X(0.12), inm+9), QPointF(X(0.88), inm+9))
+        for k in range(9): q.drawLine(QPointF(X(0.13+k*0.083), inm+6), QPointF(X(0.17+k*0.083), inm+12))
+        label("nuclear lamina (lamin A/C)", nx, inm+20, 200, lam, 7)
+        # LAD tethers (heterochromatin → lamina)
+        q.setPen(QPen(QColor(120, 96, 40, 170), 1));
+        for k in range(5):
+            xx = X(0.30+k*0.10); q.drawLine(QPointF(xx, nyc+nry*0.8), QPointF(xx, inm+6))
+        label("LAD", X(0.20), inm+2, 40, QColor(90,70,30), 7)
+        # NPC — nuclear pore spanning both membranes
+        npx = X(0.20)
+        q.setBrush(QColor(150, 110, 180)); q.setPen(QPen(QColor(110,80,140),1))
+        q.drawRoundedRect(QRectF(npx-9, onm-6, 18, (inm-onm)+12), 4, 4)
+        q.setBrush(QColor(C["surface0"])); q.setPen(Qt.PenStyle.NoPen)
+        q.drawRect(QRectF(npx-3, onm-4, 6, (inm-onm)+8))
+        label("NPC", npx, onm-12, 50, QColor(110,80,140), 7)
+        # LINC: nesprin (ONM, binds cytoskeleton) + SUN (INM, binds lamina)
+        for lx in (0.42, 0.62):
+            cx = X(lx); lc = mix(QColor(C["muted"]), good, act)
+            blob(cx, onm, 7, lc); blob(cx, inm, 7, mix(QColor(C["muted"]), violet, 0.6))
+            q.setPen(QPen(lc, 2)); q.drawLine(QPointF(cx, onm+5), QPointF(cx, inm-5))  # SUN-nesprin bridge
+        label("LINC (nesprin–SUN)", X(0.52), onm-12, 150, good.darker(110), 7)
+        # formin at the perinuclear area, nucleating an actin cable
+        fmx = X(0.76)
+        q.setBrush(QColor(120, 200, 150)); q.setPen(QPen(QColor(70,150,100),1.2))
+        q.drawEllipse(QPointF(fmx, onm+2), 9, 6)
+        label("formin", fmx, onm-11, 55, QColor(60,140,95), 7)
+
+        # ================= CYTOSKELETON (cytoplasm) =================
+        q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8, QFont.Weight.Bold))
+        q.drawText(QRectF(0, Y(0.50)-7, X(0.30), 14), Qt.AlignmentFlag.AlignLeft, "  Cytoplasm")
+        memY = Y(0.86)
+        # actin cables: LINC/formin → focal adhesions (the force-bearing lines).
+        # Driven by S.actin, so they dissolve into free monomers in the cold.
+        abase = mix(QColor(150,120,60), gold, 0.7)
+        actin(X(0.42), onm+6, X(0.28), memY-6, abase, act, 1.0)   # to FA-left
+        actin(X(0.62), onm+6, X(0.68), memY-6, abase, act, 1.0)   # to FA-right
+        actin(fmx, onm+6, X(0.50), memY-6, abase, act, 0.8)       # formin cable → membrane
+        # myosin II mini-filaments — only where an actin cable exists
+        for m in range(4):
+            t = (m+0.5)/4; xx = X(0.42)+(X(0.50)-X(0.42))*t; yy = (onm+6)+(memY-6-(onm+6))*t
+            mc = mix(good, bad, force); mc.setAlpha(int(255*clamp(act, 0, 1)))
+            q.setBrush(mc); q.setPen(Qt.PenStyle.NoPen); q.drawEllipse(QPointF(xx, yy), 3.2, 2)
+        acol = mix(QColor(150,120,60), gold, act)
+        label(f"Actin filament ({act*100:.0f}%)", X(0.30), Y(0.58), 130, acol.darker(130), 7)
+        # intermediate filaments (vimentin) — cold-stable, persist when actin/MT are gone
+        if_fil(X(0.30), inm+14, X(0.20), memY-6, mix(QColor(90,90,98), ifcol, intf))
+        if_fil(X(0.70), inm+14, X(0.80), memY-6, mix(QColor(90,90,98), ifcol, intf))
+        label("Intermediate filament (cold-stable)", X(0.18), Y(0.66), 190, ifcol, 7)
+        # microtubules radiating from the perinuclear MTOC region (also cold-labile)
+        mtub(X(0.52), inm+16, X(0.44), memY-6, mtcol, mt)
+        mtub(X(0.56), inm+16, X(0.60), memY-6, mtcol, mt)
+        label(f"Microtubule ({mt*100:.0f}%)", X(0.74), Y(0.62), 120, mtcol, 7)
+
+        # ================= PLASMA MEMBRANE + FOCAL ADHESIONS =================
+        # lipid bilayer (two rows of heads with tails)
+        q.setPen(Qt.PenStyle.NoPen)
+        for row, yy in ((0, memY-4), (1, memY+4)):
+            for k in range(int(X(0.05)), int(X(0.95)), 9):
+                q.setBrush(QColor(210, 205, 150)); q.drawEllipse(QPointF(k, yy), 3, 3)
+                q.setPen(QPen(QColor(190, 185, 130), 1))
+                q.drawLine(QPointF(k, yy+(4 if row else -4)), QPointF(k, memY))
+                q.setPen(Qt.PenStyle.NoPen)
+        label("Plasma membrane", X(0.50), memY-14, 140, C["muted"], 7)
+        # focal adhesions: integrin clusters + plaque, engaged→green / lost→red
+        ecol = mix(bad, good, engaged)
+        for fx in (0.28, 0.68):
+            cx = X(fx)
+            for dxi in (-8, 0, 8):                      # integrin cluster
+                blob(cx+dxi, memY, 5, ecol)
+            q.setBrush(mix(QColor(C["muted"]), good, engaged)); q.setPen(Qt.PenStyle.NoPen)
+            q.drawRoundedRect(QRectF(cx-16, memY+7, 32, 7), 3, 3)   # talin/vinculin/FAK plaque
+            label("FA", cx, memY+22, 40, ecol.darker(120), 8)
+        # ECM hatching + substrate force arrows (the big arrows in the reference)
         q.setPen(QPen(QColor(C["muted"]), 1))
-        for k in range(0, int(w*0.7), 9):
-            q.drawLine(QPointF(10+k, h-8), QPointF(2+k, h-2))
-        q.setPen(QColor(C["muted"])); q.setFont(QFont("",8))
-        q.drawText(QPointF(10, h-14), f"ECM · substrate stiffness")
+        for k in range(int(X(0.05)), int(X(0.95)), 10):
+            q.drawLine(QPointF(k+6, memY+30), QPointF(k, memY+36))
+        label("ECM · substrate", X(0.50), memY+40, 140, C["muted"], 7)
+        traction = 0.3 + 0.7*engaged*force
+        arrow(X(0.30), memY+30, X(0.10), memY+30, 3+5*traction, mix(QColor(C["muted"]), bad, traction))
+        arrow(X(0.66), memY+30, X(0.90), memY+30, 3+5*traction, mix(QColor(C["muted"]), bad, traction))
+        # force transmitted up the axis to the nucleus (curved implied by two arrows)
+        arrow(X(0.90), memY-10, X(0.90), Y(0.36), 2+4*force, mix(QColor(C["muted"]), amb, force))
+        label("force → nucleus", X(0.90), Y(0.50), 90, mix(QColor(C["muted"]), amb, force), 6)
 
-        # ---- membrane + integrins ----
-        my = Y(0.84); q.setPen(QPen(QColor(C["borderStrong"]),1))
-        q.setBrush(QColor(C["surface2"])); q.drawRoundedRect(QRectF(X(0.10), my-7, X(0.66), 14), 6, 6)
-        for ix in (0.30, 0.52):
-            blob(X(ix), my, 8, mix(bad,good,engaged), "ITα", None);
-            blob(X(ix)+16, my, 8, mix(bad,good,engaged), "ITβ", None)
-            q.setPen(QPen(mix(bad,good,engaged),3)); q.drawLine(QPointF(X(ix)+8, my+8), QPointF(X(ix)+8, h-8))
-        # ---- talin (stretched vs folded) ----
-        tx = X(0.41); ty0 = my-8; ty1 = Y(0.66)
-        q.setPen(QPen(mix(QColor(C["muted"]), good, talin_stretch), 2.4))
-        coils = 3 if talin_stretch>0.5 else 6
-        path = QPainterPath(QPointF(tx, ty0))
-        for c in range(1, coils+1):
-            path.lineTo(QPointF(tx + (10 if c%2 else -10), ty0 + (ty1-ty0)*c/coils))
-        q.drawPath(path)
-        q.setPen(QColor(C["text"])); q.setFont(QFont("",7,QFont.Weight.Bold))
-        q.drawText(QRectF(tx-52, (ty0+ty1)/2-6, 40, 12), Qt.AlignmentFlag.AlignRight,
-                   "talin" + (" ⟺" if talin_stretch>0.5 else ""))
-        q.setFont(QFont("",7)); q.setPen(QColor(C["muted"]))
-        q.drawText(QRectF(tx-72, (ty0+ty1)/2+5, 60, 12), Qt.AlignmentFlag.AlignRight,
-                   "stretched" if talin_stretch>0.5 else "folded")
-        # ---- plaque proteins ----
-        py = Y(0.70)
-        blob(X(0.55), py, 13, mix(QColor(C["muted"]), good, talin_stretch), "VCL", "vinculin")
-        blob(X(0.30), py, 13, mix(bad,good,engaged), "FAK", None, pP=engaged>0.4)
-        blob(X(0.30), Y(0.78), 11, mix(QColor(C["muted"]),good,engaged), "PAX", "paxillin")
-        blob(X(0.55), Y(0.78), 10, mix(QColor(C["muted"]),good,engaged*0.8), "p130Cas", None)
-        if engaged < 0.25:
-            q.setPen(bad); q.setFont(QFont("",8,QFont.Weight.Bold))
-            q.drawText(QRectF(X(0.20), Y(0.63), X(0.5), 14), Qt.AlignmentFlag.AlignHCenter,
-                       "adhesion lost → anoikis")
-
-        # ---- actin stress fibre ----
-        ax = X(0.41)
-        q.setPen(QPen(QColor(168,152,96, int(120+130*act)), 2+5*act))
-        q.drawLine(QPointF(ax, ty1), QPointF(ax, Y(0.34)))
-        for m in range(4):  # myosin
-            yy = Y(0.66) - (Y(0.66)-Y(0.34))*(m+.5)/4
-            q.setBrush(mix(good,bad,clamp(f.get("pMLC",0),0,1))); q.setPen(Qt.PenStyle.NoPen)
-            q.drawEllipse(QPointF(ax, yy), 3.5, 2)
-        q.setPen(QColor(C["muted"])); q.setFont(QFont("",7))
-        q.drawText(QPointF(ax+8, Y(0.50)), "actin + myosin II")
-
-        # ---- RhoA→ROCK→LIMK→cofilin (left cascade) ----
-        casc=[("RhoA",0.44),("ROCK",0.40),("LIMK",0.44),("CFL-P",0.40)]
-        for i,(nm,_)in enumerate([("RhoA",0),("ROCK",0),("LIMK",0),("cofilin",0)]):
-            cyy=Y(0.62-i*0.075); c=mix(good,bad,clamp(rock,0,1)) if nm!="cofilin" else mix(bad,good,clamp(rock,0,1))
-            blob(X(0.13), cyy, 12, c, nm, "P" if nm=="cofilin" else None)
-            if i>0: q.setPen(QPen(QColor(C["borderStrong"]),1.4));q.drawLine(QPointF(X(0.13),Y(0.62-(i-1)*0.075)+12),QPointF(X(0.13),cyy-12))
-        q.setPen(QPen(QColor(C["borderStrong"]),1.4,Qt.PenStyle.DashLine))
-        q.drawLine(QPointF(X(0.13),Y(0.335)+2),QPointF(ax-6,Y(0.36)))  # ROCK→actin stabilisation
-
-        # ---- nuclear envelope: nesprin-SUN-lamin ----
-        ny=Y(0.30)
-        q.setBrush(QColor(C["surface2"]));q.setPen(QPen(QColor(C["borderStrong"]),1))
-        q.drawRoundedRect(QRectF(X(0.10),ny-6,X(0.66),12),5,5)  # ONM
-        q.drawRoundedRect(QRectF(X(0.10),ny+8,X(0.66),12),5,5)  # INM
-        # nesprin (outer) + SUN (inner) linking actin to lamina
-        q.setPen(QPen(mix(QColor(C["muted"]),good,act),2.2))
-        q.drawLine(QPointF(ax,Y(0.34)),QPointF(ax,ny-6))       # actin→nesprin
-        blob(ax, ny, 8, mix(QColor(C["muted"]),good,act),"nesprin",None)
-        blob(ax, ny+14, 8, mix(QColor(C["muted"]),good,act),"SUN",None)
-        q.setPen(QColor(C["muted"]));q.setFont(QFont("",7))
-        q.drawText(QPointF(X(0.60),ny-8),"outer NM");q.drawText(QPointF(X(0.60),ny+26),"inner NM")
-        # lamin A/C mesh (loads amber under force)
-        lam=mix(QColor(139,127,240),amb,clamp(force,0,1))
-        q.setPen(QPen(lam,2));q.drawLine(QPointF(X(0.12),ny+22),QPointF(X(0.74),ny+22))
-        for k in range(6):q.drawLine(QPointF(X(0.14+k*0.11),ny+20),QPointF(X(0.18+k*0.11),ny+26))
-        q.setPen(lam);q.setFont(QFont("",7,QFont.Weight.Bold));q.drawText(QPointF(X(0.12),ny+38),"lamin A/C + emerin")
-
-        # ---- nucleus / mechanosensitive genes ----
-        q.setBrush(QColor(42,120,214,40));q.setPen(QPen(QColor(C["nucleus"]),1.5))
-        q.drawEllipse(QPointF(X(0.42),Y(0.10)),X(0.30),Y(0.09))
-        mech=mix(bad,good,clamp(yap,0,1))
-        q.setBrush(mech);q.setPen(Qt.PenStyle.NoPen)
-        q.drawEllipse(QPointF(X(0.42),Y(0.10)),6,6)
-        q.setPen(QColor(C["text"]));q.setFont(QFont("",8,QFont.Weight.Bold))
-        q.drawText(QRectF(X(0.20),Y(0.10)+8,X(0.44),14),Qt.AlignmentFlag.AlignHCenter,
-                   "mechanosensitive genes")
-        q.setFont(QFont("",7));q.setPen(QColor(C["muted"]))
-        q.drawText(QRectF(X(0.20),Y(0.10)+21,X(0.44),12),Qt.AlignmentFlag.AlignHCenter,
-                   f"YAP/TAZ nuclear {yap*100:.0f}%")
+        # ================= MAZUR TWO-FACTOR OVERLAY =================
+        # Only name a Mazur injury regime in a freezing context; CPA-loading
+        # shrinkage is intentional equilibration, and suspension FA is low by design.
+        phase = f.get("phase", "")
+        freezing_ctx = frozen or phase in ("cool", "seed", "store", "hold", "warm")
+        banner = None
+        if freezing_ctx and shatter >= buckle and shatter > 0.15:
+            banner = (f"IIF regime — intracellular ice fragments the network (P_iif {iif*100:.0f}%)", bad)
+        elif freezing_ctx and buckle > 0.15:
+            banner = (f"Solution-effects regime — dehydration collapses the cytoskeleton (V {Vn*100:.0f}%)", amb)
+        elif phase == "load" and shrink > 0.25:
+            banner = (f"CPA loading — osmotic shrinkage (V {Vn*100:.0f}%)", amb)
+        elif phase == "recover" and engaged < 0.20:
+            banner = ("Adhesion not re-established → anoikis risk", bad)
+        if banner:
+            msg, mc = banner
+            q.setBrush(QColor(mc.red(), mc.green(), mc.blue(), 30)); q.setPen(QPen(mc, 1))
+            q.drawRoundedRect(QRectF(X(0.04), h-20, X(0.92), 16), 4, 4)
+            q.setPen(mc); q.setFont(QFont("", 7, QFont.Weight.Bold))
+            q.drawText(QRectF(X(0.04), h-20, X(0.92), 16), Qt.AlignmentFlag.AlignCenter, msg)
+        # YAP/TAZ readout (nuclear mechanotransduction outcome) — top-right, clear of chromatin
+        label(f"YAP/TAZ nuclear {yap*100:.0f}%", X(0.80), Y(0.035), 150,
+              mix(bad, good, yap).darker(120), 7)
 
 
 class Main(QMainWindow):
@@ -573,17 +726,19 @@ class Main(QMainWindow):
         self.phase.setStyleSheet("font-family:monospace;color:#52514e")
         self.phase.setAlignment(Qt.AlignmentFlag.AlignRight); row.addWidget(self.phase)
         self.rendcombo = QComboBox()
-        for key, lbl in [("illustrative", "Illustrative"), ("fluor", "Fluorescence"),
-                         ("phase", "Phase-contrast")]:
+        for key, lbl in [("dark", "Dark"), ("illustrative", "Illustrative"),
+                         ("fluor", "Fluorescence"), ("phase", "Phase-contrast")]:
             self.rendcombo.addItem(lbl, key)
-        self.rendcombo.setToolTip("Rendering style: illustrative colour, confocal-fluorescence "
-                                  "(dark field, glowing channels), or label-free phase-contrast greyscale")
+        self.rendcombo.setToolTip("Rendering style: dark green-cytoplasm view (default), "
+                                  "illustrative colour, confocal-fluorescence (glowing channels), "
+                                  "or label-free phase-contrast greyscale")
         self.rendcombo.currentIndexChanged.connect(
             lambda _i: self.view.set_render_mode(self.rendcombo.currentData()))
         row.addWidget(self.rendcombo)
         self.scibox = QCheckBox("Scientific labels")
         self.scibox.setToolTip("Overlay scale bar, leader-line labels with live quantitative "
                                "state, legend, and a cryo-stage dendritic ice front (any rendering)")
+        self.scibox.setChecked(True)  # scientific overlay on by default
         self.scibox.toggled.connect(self.view.set_sci); row.addWidget(self.scibox)
         self.savebtn = QPushButton("Save video…")
         self.savebtn.setToolTip("Render the cell-view animation across the whole protocol "
@@ -762,7 +917,7 @@ class Main(QMainWindow):
                 c.setData(x, y)
         self._update_signatures()
         self._compute_ucurve()
-        self.timelinebar.set_data(self.S.T, self.S.phase)
+        self.timelinebar.set_data(self.S.T, self.S.phase, self.S.Vn)
         self._show(self.idx, jumped=True)
         self.statusBar().showMessage(
             f"{n} frames · peak ROCK {R['rockPeak']:.2f} · grain {R['grainMax']:.0f} µm · "
@@ -819,6 +974,8 @@ class Main(QMainWindow):
                     atp=S.atp[i], rock=S.rock[i], casp3=S.casp3[i], mpt=S.mpt[i],
                     fIce=S.fIce[i], grain=S.grain[i], chanW=S.chanW[i],
                     squeeze=S.squeeze[i], frozen=frozen, phase=ph,
+                    Cout=S.Cout[i], dVw=(S.Vn[i] - S.Vn[i - 1]) if i > 0 else 0.0,
+                    dTsc=S.dTsc[i],
                     sterol=self.P.sterol, cpaLoad=self.P.molar(), cyto=self.P.cyto,
                     r_iso_um=(3 * self.P.Viso / (4 * math.pi)) ** (1 / 3))
 
