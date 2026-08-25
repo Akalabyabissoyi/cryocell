@@ -20,33 +20,44 @@ import numpy as np
 
 class IceField:
     def __init__(self, n_grains: int = 22, seed: int = 7):
-        rs = np.random.RandomState(seed)
         self.n = n_grains
-        # angles spread around the cell with jitter, so no direction is special
-        base = np.linspace(0, 2 * np.pi, n_grains, endpoint=False)
-        self.theta = base + rs.uniform(-0.5, 0.5, n_grains) * (2 * np.pi / n_grains)
-        self.size_jit = rs.uniform(0.65, 1.45, n_grains)     # grain size variation
-        self.dist_jit = rs.uniform(0.72, 1.34, n_grains)     # how close each front sits
-        self.rot = rs.uniform(0, np.pi, n_grains)            # facet orientation
-        self.shade = rs.uniform(0.0, 1.0, n_grains)
         self.centres = np.zeros((n_grains, 2))
         self.radii = np.zeros(n_grains)
         self.pocket_mean = 1e4
         self.long = 1e4
         self.aniso = 1.0
         self.active = False
+        self.reseed(seed)
+
+    def reseed(self, seed=None):
+        """Draw a fresh random grain layout, so the polycrystal that nucleates
+        around the cell is different every run (real ice never freezes twice the
+        same way). Called on each new simulation."""
+        rs = np.random.RandomState(seed)
+        n = self.n
+        # angles spread around the cell with jitter, so no direction is special
+        base = np.linspace(0, 2 * np.pi, n, endpoint=False)
+        self.theta = base + rs.uniform(-0.5, 0.5, n) * (2 * np.pi / n)
+        self.size_jit = rs.uniform(0.65, 1.45, n)     # grain size variation
+        self.dist_jit = rs.uniform(1.02, 1.40, n)     # each front sits just outside the film
+        self.rot = rs.uniform(0, np.pi, n)            # facet orientation
+        self.shade = rs.uniform(0.0, 1.0, n)
+        self.orient = float(rs.uniform(0, np.pi))     # axis the pocket elongates along
 
     def update(self, f_ice: float, grain_um: float, px_per_um: float,
                chan_um: float, r_cell_px: float):
-        """Place the grain fronts so the pocket has the model's channel width in
-        its narrow direction, while keeping enough enclosed area for the cell.
+        """Close the grain fronts in around the cell on every side.
 
-        A cell is not compressible. When the intergranular channel narrows below
-        the cell diameter the cell does not shrink to fit -- the pocket it
-        occupies is elongated, and the cell deforms into it. So the pocket is
-        made anisotropic, with the anisotropy growing as the channel narrows,
-        and its area is held at or above the cell's own. A pocket that simply
-        closed in isotropically would crush the cell, which is not what happens.
+        A slow-frozen SUSPENSION cell loses water and shrinks into a small,
+        crenated sphere; it does not fold into a slab. The cell has already
+        dehydrated to r_cell_px, so the unfrozen pocket is a roughly ROUND
+        envelope hugging that shrunken cell with only a thin unfrozen brine film.
+        The grain fronts sit just outside it at slightly different distances, so
+        the ice jacket reads as an irregular polycrystal but the cell stays round
+        (cf. cryomicroscopy of hADSCs, Li et al. 2020; the cell shrinks and
+        crenates, it does not become rectangular). Mechanical compression from a
+        narrowing channel is accounted for separately as squeeze damage in the
+        engine, not by deforming the cell into a capsule here.
         """
         self.active = f_ice > 0.02
         if not self.active:
@@ -55,19 +66,15 @@ class IceField:
             self.aniso = 1.0
             return
         grain_px = max(8.0, grain_um * px_per_um)
-        half = chan_um * px_per_um * 0.5
-        # required area to hold the cell with a little clearance
-        need = np.pi * (r_cell_px ** 2) * 1.25
-        narrow = float(np.clip(half, r_cell_px * 0.16, r_cell_px * 4.5))
-        # elongate along one axis until the ellipse of half-width `narrow` has
-        # at least the area the cell needs
-        self.aniso = float(np.clip(need / (np.pi * narrow * narrow), 1.0, 9.0))
-        self.pocket_mean = narrow
-        self.long = narrow * self.aniso
+        film = r_cell_px * 1.06            # thin unfrozen film around the shrunken cell
+        self.pocket_mean = film
+        self.long = film                  # isotropic: round pocket, no elongation
+        self.aniso = 1.0
         self.radii = 0.5 * grain_px * self.size_jit
-        # grain fronts sit on that ellipse, jittered, so the pocket is irregular
-        e = np.hypot(np.cos(self.theta) * self.long, np.sin(self.theta) * narrow)
-        d = e * self.dist_jit + self.radii
+        # grain fronts on a circle of radius ~film, jittered outward so the ice
+        # boundary is an irregular polygon but stays round overall and never
+        # crushes inside the cell (dist_jit >= 1).
+        d = film * self.dist_jit + self.radii
         self.centres = np.stack([np.cos(self.theta) * d, np.sin(self.theta) * d], axis=1)
 
     def pocket_radius(self, theta):
@@ -88,9 +95,10 @@ class IceField:
         out = np.min(s, axis=1)
         # cap by the pocket envelope itself, so directions with no grain in the
         # way do not spike out to infinity
-        env = 1.0 / np.sqrt((np.cos(theta) / self.long) ** 2
-                            + (np.sin(theta) / self.pocket_mean) ** 2)
-        out = np.minimum(np.where(np.isfinite(out), out, 1e4), env * 1.18)
+        ta = theta - getattr(self, "orient", 0.0)
+        env = 1.0 / np.sqrt((np.cos(ta) / self.long) ** 2
+                            + (np.sin(ta) / self.pocket_mean) ** 2)
+        out = np.minimum(np.where(np.isfinite(out), out, 1e4), env * 1.05)
         return out
 
     def polygon(self, n: int = 220):

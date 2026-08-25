@@ -882,6 +882,7 @@ class Main(QMainWindow):
             self.S, self.R, self.E = simulate(self.P)
         except Exception:
             self.statusBar().showMessage("simulation failed"); traceback.print_exc(); return
+        self.view.ice.reseed()          # fresh polycrystal each run (no two freezes alike)
         n = len(self.S)
         self.scrub.blockSignals(True); self.scrub.setRange(0, n - 1)
         self.idx = min(self.idx, n - 1); self.scrub.setValue(self.idx)
