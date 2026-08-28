@@ -14,7 +14,8 @@ from .model import Params, simulate, CPAS, ADHESION_STATES, ADDITIVES, osm_from_
 from .analysis import (simulate_population, knockout_screen, stability_check,
                        next_experiment)
 from .hpa import HPA, HPA_TOTALS, GEOMETRY, summary_line
-from .cellview import CellView, LAYERS, C
+from .cellview import CellView, LAYERS, C, STRESS_PATHWAYS, stress_activity
+from .pathways import REACTOME, REACTOME_RETRIEVED
 
 pg.setConfigOptions(antialias=True, background=C["surface1"], foreground=C["text2"])
 SER = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#4a3aa7"]
@@ -54,6 +55,21 @@ PRESETS = {
                                          adhesion="suspension",
                                          apop_resist=0.0, anoikis_resist=0.0,
                                          glycolytic=0.0, antioxidant=0.0),
+    # Red blood cell — the extreme case: tiny, ANUCLEATE, no organelles, a very
+    # high water permeability (AQP1) and a cholesterol-rich membrane. Its huge
+    # surface-to-volume and high Lp let it dehydrate almost instantly, so it
+    # rarely forms intracellular ice even at fast cooling — but it is osmotically
+    # fragile. No caspase apoptosis (no nucleus/mito), so apop_resist = 1.
+    # Values are LITERATURE PRIORS (not calibrated). Lp ~1.6-3 um/min/atm (AQP1).
+    "Cell — Red blood cell (prior)":     dict(cell_type="rbc", Viso=90, lp=1.8, ps=0.05,
+                                         sterol=40, cyto=0.55, nuc_scale=0.4, adhesion="suspension",
+                                         apop_resist=1.0, anoikis_resist=1.0, glycolytic=1.0, antioxidant=0.4),
+    # T-lymphocyte — small round cell with a high nucleus-to-cytoplasm ratio and
+    # only a thin cytoplasmic rim. Moderate Lp; a common DMSO cryopreservation
+    # target. Literature-prior parameters, not calibrated.
+    "Cell — T lymphocyte (prior)":       dict(cell_type="tcell", Viso=180, lp=0.30, sterol=25,
+                                         cyto=0.90, adhesion="suspension",
+                                         apop_resist=0.0, anoikis_resist=0.0, glycolytic=0.0, antioxidant=0.0),
 }
 
 # (attr, label, min, max, step, decimals, log)
@@ -591,6 +607,67 @@ class MolecularView(QWidget):
               mix(bad, good, yap).darker(120), 7)
 
 
+class StressView(QWidget):
+    """BioGPU-style cryo stress-pathway readout. Each pathway lights up by an
+    activity the engine actually computes (see cellview.stress_activity), anchored
+    to its Human Protein Atlas compartment. Pathways the model does not simulate
+    are shown greyed and flagged, never given a faked value."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.frame = None; self.setMinimumSize(360, 520); self.setAutoFillBackground(True)
+    def set_frame(self, f): self.frame = f; self.update()
+
+    def paintEvent(self, _):
+        q = QPainter(self); q.setRenderHint(QPainter.RenderHint.Antialiasing)
+        q.fillRect(self.rect(), QColor(C["surface0"]))
+        f = self.frame
+        if f is None:
+            q.setPen(QColor(C["muted"])); q.drawText(self.rect(),
+                Qt.AlignmentFlag.AlignCenter, "Run a protocol"); return
+        w = self.width()
+        act = stress_activity(f)
+        q.setPen(QColor(C["text"])); q.setFont(QFont("", 12, QFont.Weight.Bold))
+        q.drawText(QRectF(16, 10, w - 32, 22), Qt.AlignmentFlag.AlignLeft, "Cell-stress pathways")
+        q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8))
+        q.drawText(QRectF(16, 32, w - 32, 16), Qt.AlignmentFlag.AlignLeft,
+                   "activity from live model state · anchored to HPA compartments")
+        y = 60; rowh = 52; barx = 20; barw = w - 40
+        for key, label, hpa_key, _tgt, sev, sim in STRESS_PATHWAYS:
+            a = float(act.get(key, 0.0))
+            hp = HPA.get(hpa_key); rc = REACTOME.get(key)
+            if rc:                              # data-driven membership (Reactome, CC0)
+                comp = f"{rc['count']} genes · {rc['id']}"
+            elif sim:
+                comp = f"{hp[0] if hp else ''} · derived from model state"
+            else:
+                comp = f"{hp[0]}" if hp else ""
+            # label + compartment
+            q.setPen(QColor(C["text"] if sim else C["muted"]))
+            q.setFont(QFont("", 10, QFont.Weight.Bold))
+            q.drawText(QRectF(barx, y, barw - 60, 16), Qt.AlignmentFlag.AlignLeft, label)
+            q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8))
+            q.drawText(QRectF(barx, y + 17, barw - 60, 14), Qt.AlignmentFlag.AlignLeft, comp)
+            # activity bar
+            by = y + 34
+            q.setBrush(QColor(C["surface2"])); q.setPen(QColor(C["border"]))
+            q.drawRoundedRect(QRectF(barx, by, barw, 8), 4, 4)
+            if sim:
+                col = QColor(C[sev]) if a > 0.45 else QColor(C["warn"]) if a > 0.2 else QColor(C["good"])
+                q.setBrush(col); q.setPen(Qt.PenStyle.NoPen)
+                q.drawRoundedRect(QRectF(barx, by, max(2.0, barw * a), 8), 4, 4)
+                q.setPen(QColor(C["text2"])); q.setFont(QFont("", 9, QFont.Weight.Bold))
+                q.drawText(QRectF(barx, y, barw, 16), Qt.AlignmentFlag.AlignRight, f"{a*100:.0f}%")
+            else:
+                q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8, QFont.Weight.Bold))
+                q.drawText(QRectF(barx, y, barw, 16), Qt.AlignmentFlag.AlignRight, "not simulated")
+            y += rowh
+        q.setPen(QColor(C["muted"])); q.setFont(QFont("", 7))
+        q.drawText(QRectF(16, y + 4, w - 32, 42), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
+                   "Activity = simulated state (ROS, ΔΨm/MPT, caspase, RhoA-ROCK, protein "
+                   "denaturation, pore, Ca²⁺). Gene membership from Reactome (CC0, retrieved "
+                   f"{REACTOME_RETRIEVED}); compartment from the Human Protein Atlas.")
+
+
 class Main(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -843,6 +920,11 @@ class Main(QMainWindow):
         molsc = QScrollArea(); molsc.setWidget(self.molec); molsc.setWidgetResizable(True)
         tabs.addTab(molsc, "FA · LINC")
 
+        # --- BioGPU-style cell-stress pathway readout (live)
+        self.stress = StressView()
+        strsc = QScrollArea(); strsc.setWidget(self.stress); strsc.setWidgetResizable(True)
+        tabs.addTab(strsc, "Stress pathways")
+
         # --- analysis
         aw = QWidget(); av = QVBoxLayout(aw)
         row = QHBoxLayout()
@@ -976,8 +1058,9 @@ class Main(QMainWindow):
                     fIce=S.fIce[i], grain=S.grain[i], chanW=S.chanW[i],
                     squeeze=S.squeeze[i], frozen=frozen, phase=ph,
                     Cout=S.Cout[i], dVw=(S.Vn[i] - S.Vn[i - 1]) if i > 0 else 0.0,
-                    dTsc=S.dTsc[i],
+                    dTsc=S.dTsc[i], ros=S.ros[i],
                     sterol=self.P.sterol, cpaLoad=self.P.molar(), cyto=self.P.cyto,
+                    cell_type=self.P.cell_type,
                     r_iso_um=(3 * self.P.Viso / (4 * math.pi)) ** (1 / 3))
 
     def _show(self, i, jumped=False):
@@ -985,6 +1068,7 @@ class Main(QMainWindow):
         self.view.set_frame(f, jumped)
         self.mechano.set_frame(f)
         self.molec.set_frame(f)
+        self.stress.set_frame(f)
         names = dict(load="CPA loading", cool="Cooling", seed="Seeding", store="Storage",
                      warm="Warming", melt="Melting", dilute="Dilution", recover="Recovery", end="End")
         tt = self.S.t[i]

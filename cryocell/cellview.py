@@ -123,7 +123,38 @@ LAYERS = [
     ("ice",          "Extracellular ice",     None),
     ("iif",          "Intracellular ice",     None),
     ("waterflux",    "Water flux",            None),
+    ("stress",       "Stress pathways",       None),
 ]
+
+# ---- cryo cell-stress pathways (BioGPU-style pathway readout) ---------------
+# Each pathway's ACTIVITY comes from a state variable the engine actually
+# computes; HPA supplies only the compartment it acts in. Pathways the model does
+# not simulate are flagged (simulated=False) and never given a faked activity.
+#   key, label, HPA compartment key, glow target, severity colour, simulated
+STRESS_PATHWAYS = [
+    ("oxid", "Oxidative stress (ROS)",              "mitochondria", "mito",     "crit", True),
+    ("apop", "Intrinsic apoptosis (MPT→caspase-3)", "mitochondria", "mito",     "crit", True),
+    ("mech", "Mechanotransduction / anoikis",       "focal_adh",    "membrane", "warn", True),
+    ("prot", "Unfolded-protein / proteostasis",     "er",           "er",       "warn", True),
+    ("memb", "Membrane integrity stress",           "plasma_mem",   "membrane", "warn", True),
+    ("ca",   "Ca²⁺ / ionic stress",                 "cytosol",      "cytosol",  "warn", True),
+    ("cold", "Cold-shock RNA (CIRBP/RBM3)",         "nucleoplasm",  None,       "muted", False),
+    ("dna",  "DNA-damage response",                 "nucleoplasm",  None,       "muted", False),
+]
+
+def stress_activity(f):
+    """Per-frame activity (0–1) of each stress pathway, from real model state."""
+    c = lambda v: float(np.clip(v, 0, 1))
+    return {
+        "oxid": c(f.get("ros", 0.0)),
+        "apop": c(0.5 * f.get("mpt", 0.0) + 0.5 * f.get("casp3", 0.0)),
+        "mech": c(max(f.get("rock", 0.0), f.get("bleb", 0.0),
+                      f.get("pMLC", 0.0) * (0.3 + 0.7 * f.get("actin", 0.0)))),
+        "prot": c(1.0 - f.get("prot", 1.0)),
+        "memb": c(f.get("pore", 0.0) + 0.3 * f.get("bleb", 0.0)),
+        "ca":   c(f.get("caCyt", 0.0) / 0.4),
+        "cold": 0.0, "dna": 0.0,
+    }
 
 
 class Organelle:
@@ -300,7 +331,8 @@ class CellView(QWidget):
             self.sb.step(L0, kT_g, kB, 0.60, math.pi * R * R, damp_g, slack,
                          k_cortex=kC_g, pocket_r=pocket, crystals=crystals,
                          noise=noise_g, external=self._ext)
-            Rn = self.R0 * 0.40 * max(f["Vnuc"], 0.1) ** (1 / 3)
+            nuc_ratio = 0.62 if f.get("cell_type") == "tcell" else 0.40   # T-cells: high N:C ratio
+            Rn = self.R0 * nuc_ratio * max(f["Vnuc"], 0.1) ** (1 / 3)
             self.nuc.step(2 * math.pi * Rn / self.nuc.n, 0.11, 0.30, 0.42,
                           math.pi * Rn * Rn, 0.88, 0.02, k_cortex=0.09)
             # nucleus stays inside the plasma membrane
@@ -506,6 +538,7 @@ class CellView(QWidget):
         q.restore()
 
         self._draw_membrane(q, f, path, rmean)
+        self._draw_stress_glow(q, f, rmean)
         self._draw_ice_penetration(q, f, rmean)
         self._draw_water_flux(q, f, rmean)
         self._draw_overlay(q, f, px_um, rmean)
@@ -590,6 +623,47 @@ class CellView(QWidget):
                            S(ca * tipr + ta * sgn * memb * 0.08, sa * tipr + tb * sgn * memb * 0.08))
             q.setBrush(col("crit", 170)); q.setPen(Qt.PenStyle.NoPen)  # membrane breach
             q.drawEllipse(S(ca * memb, sa * memb), 2.6 * Z, 2.6 * Z)
+
+    def _draw_stress_glow(self, q, f, rmean):
+        """BioGPU-style: cryo cell-stress pathways light up on the compartments
+        they act in, intensity from the model's live state (see stress_activity).
+        Only simulated pathways glow; cold-shock/DNA-damage are never faked."""
+        if "stress" not in self.visible:
+            return
+        S, Z = self._to_screen, self.zoom
+        act = stress_activity(f)
+        def glow(pt, r, key, a):
+            if a < 0.12:
+                return
+            g = QRadialGradient(pt, r)
+            c0 = QColor(col(key)); c0.setAlpha(int(165 * min(a, 1)))
+            c1 = QColor(col(key)); c1.setAlpha(0)
+            g.setColorAt(0, c0); g.setColorAt(1, c1)
+            q.setBrush(QBrush(g)); q.setPen(Qt.PenStyle.NoPen)
+            q.drawEllipse(pt, r, r)
+        q.save()
+        # mitochondria: oxidative stress + intrinsic apoptosis (red)
+        mv = max(act["oxid"], act["apop"])
+        if mv > 0.12 and "mitochondria" in self.visible:
+            for o in self.org:
+                if o.kind == "mitochondria":
+                    glow(S(o.x, o.y), 13 * Z, "crit", mv)
+        # proteostasis: unfolded-protein stress across the ER/cytosol (amber ring)
+        if act["prot"] > 0.12:
+            g = QRadialGradient(S(0, 0), rmean * 0.9 * Z)
+            c0 = QColor(col("warn")); c0.setAlpha(int(70 * act["prot"]))
+            c1 = QColor(col("warn")); c1.setAlpha(0)
+            g.setColorAt(0.35, c1); g.setColorAt(0.7, c0); g.setColorAt(1, c1)
+            q.setBrush(QBrush(g)); q.setPen(Qt.PenStyle.NoPen)
+            q.drawEllipse(S(0, 0), rmean * 0.9 * Z, rmean * 0.9 * Z)
+        # membrane: mechanotransduction + integrity stress (amber ring on the cortex)
+        mm = max(act["mech"], act["memb"])
+        if mm > 0.12:
+            q.setBrush(Qt.BrushStyle.NoBrush)
+            pen = QPen(QColor(col("warn"))); pen.setWidthF(max(3.0, 8.0 * Z * mm))
+            cc = QColor(col("warn")); cc.setAlpha(int(150 * mm)); pen.setColor(cc)
+            q.setPen(pen); q.drawPath(self._path(self.sb.p * 0.99))
+        q.restore()
 
     def _draw_water_flux(self, q, f, rmean):
         """Osmotic water flux across the membrane — the engine that drives volume
@@ -686,22 +760,35 @@ class CellView(QWidget):
         # resting cytoskeletal density of this cell line: mesenchymal cells
         # (hMSC) carry a denser network than epithelial lines (HeLa, A549).
         cyto = float(np.clip(f.get("cyto", 1.0), 0.3, 2.0))
+        # cell-type morphology (rendering only): a mature red blood cell is
+        # anucleate and organelle-free, its interior packed with haemoglobin; a
+        # T lymphocyte is small with a high nucleus-to-cytoplasm ratio.
+        ctype = f.get("cell_type", "msc")
+        has_org = ctype != "rbc"
+        has_nucleus = ctype != "rbc"
 
-        # ---- cytoplasmic crowding / ribosome texture (behind organelles) ----
-        # rendered once into a cached pixmap and blitted, scaled to the current
-        # cell radius and clipped to the cell path — O(1) per frame. Quenched as
-        # the cytosol vitrifies (glass); skipped in clean phase-contrast.
+        # ---- cytoplasmic interior ----
         if self.render_mode != "phase":
-            gl = f.get("glass", 0.0)
-            pix = self._ribo_pixmap(self.render_mode)
             St = self._to_screen(0, 0); rpx = rmean * Z
-            q.save(); q.setOpacity(max(0.0, 1.0 - 0.5 * gl))
-            q.drawPixmap(QRectF(St.x() - rpx, St.y() - rpx, 2 * rpx, 2 * rpx),
-                         pix, QRectF(0, 0, pix.width(), pix.height()))
-            q.restore()
+            if ctype == "rbc":
+                # organelle-free: interior is packed haemoglobin, with the
+                # biconcave-disc central pallor drawn as a lighter core.
+                hb = QColor(196, 60, 52)
+                g = QRadialGradient(St, rpx)
+                g.setColorAt(0.0, QColor(232, 150, 140)); g.setColorAt(0.42, hb)
+                g.setColorAt(1.0, hb.darker(118))
+                q.setBrush(QBrush(g)); q.setPen(Qt.PenStyle.NoPen)
+                q.drawEllipse(St, rpx, rpx)
+            else:
+                gl = f.get("glass", 0.0)
+                pix = self._ribo_pixmap(self.render_mode)
+                q.save(); q.setOpacity(max(0.0, 1.0 - 0.5 * gl))
+                q.drawPixmap(QRectF(St.x() - rpx, St.y() - rpx, 2 * rpx, 2 * rpx),
+                             pix, QRectF(0, 0, pix.width(), pix.height()))
+                q.restore()
 
         # intermediate filaments — a loose basket under the cortex
-        if "interm_fil" in vis:
+        if has_org and "interm_fil" in vis:
             q.setPen(QPen(col("ifil", int(90 * min(cyto, 1.4))), max(0.6, 0.9 * Z * cyto)))
             n_if = max(6, int(len(self.if_seed) * cyto))
             for a in self.if_seed[:n_if]:
@@ -713,7 +800,7 @@ class CellView(QWidget):
 
         # microtubules radiating from the centrosome (cold-labile); count and
         # weight scale with the line's cytoskeletal density
-        if "microtubules" in vis and f["mt"] > 0.03:
+        if has_org and "microtubules" in vis and f["mt"] > 0.03:
             cr = float(self.sb.radius_at(np.array([self.centro_a]))[0]) * 0.30
             cxp, cyp = math.cos(self.centro_a) * cr, math.sin(self.centro_a) * cr
             q.setPen(QPen(col("mtub", int((40 + 150 * f["mt"]) * min(cyto, 1.3))),
@@ -730,7 +817,7 @@ class CellView(QWidget):
         # ER — perinuclear rough-ER cisternae (membrane sheets studded with
         # ribosomes) continuous with the nuclear envelope, plus peripheral smooth
         # tubules reaching toward the cortex. Ca-store depletion fades it.
-        if "er" in vis and self.render_mode != "phase":
+        if has_org and "er" in vis and self.render_mode != "phase":
             alpha = int(np.clip(120 + 110 * f["caER"], 70, 240))
             ercol = col("er", alpha); ribo = col("er", min(255, alpha + 25))
             # nested perinuclear sheets (partial arcs, so it reads as stacks not rings)
@@ -766,7 +853,7 @@ class CellView(QWidget):
                 q.drawPath(p)
 
         # Golgi — stacked cisternae beside the nucleus
-        if "golgi" in vis:
+        if has_org and "golgi" in vis:
             gr = float(self.sb.radius_at(np.array([self.golgi_a]))[0]) * 0.52
             gx, gy = math.cos(self.golgi_a) * gr, math.sin(self.golgi_a) * gr
             q.setPen(QPen(col("golgi", 210), max(1.2, 2.4 * Z)))
@@ -780,7 +867,7 @@ class CellView(QWidget):
                 q.drawPath(p)
 
         # centrosome
-        if "centrosome" in vis:
+        if has_org and "centrosome" in vis:
             cr = float(self.sb.radius_at(np.array([self.centro_a]))[0]) * 0.30
             cxp, cyp = math.cos(self.centro_a) * cr, math.sin(self.centro_a) * cr
             q.setBrush(col("centro", 200)); q.setPen(QPen(col("centro"), 1.4))
@@ -793,7 +880,7 @@ class CellView(QWidget):
         vm, psi = f["Vmito"], f["dPsi"]
         dehyd = max(f.get("Vn", 1.0), 0.05) ** (1 / 6)
         for o in self.org:
-            if o.kind not in vis: continue
+            if not has_org or o.kind not in vis: continue
             pt = S(o.x, o.y)
             if o.kind == "mitochondria":
                 L = MITO_UM[0] * px_um * vm ** (1 / 3) * o.scale * dehyd
@@ -840,8 +927,8 @@ class CellView(QWidget):
                 rr = float(self.sb.radius_at(np.array([a]))[0]) * rr0 * 0.94
                 q.drawEllipse(S(math.cos(a) * rr, math.sin(a) * rr), 1.7 * Z, 1.7 * Z)
 
-        # nucleus
-        if "nucleus" in vis:
+        # nucleus (absent in a mature red blood cell)
+        if has_nucleus and "nucleus" in vis:
             np_ = self._path(self.nuc.p)
             rn = math.sqrt(self.nuc.area() / math.pi)
             g = QRadialGradient(self._to_screen(-rn * .3, -rn * .3), rn * 1.3 * Z)

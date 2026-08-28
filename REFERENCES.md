@@ -236,3 +236,24 @@ per-CPA σ, EaPs, B, Tg′, and the propagation and ROS constants are literature
 values, not measurements of a specific line. The `next_experiment` tool lists exactly
 which of these to measure first. Cross-cell-type predictive accuracy is unproven and
 requires bench data this model cannot supply.
+
+## G. Stress-pathway gene membership (Reactome)
+
+The cell-stress pathway panel's gene membership is data-driven, not hand-assigned.
+Each simulated stress pathway is defined by the human participants of a specific
+Reactome pathway, bundled in `cryocell/pathways.py`:
+
+- Oxidative stress → *Detoxification of reactive oxygen species* (R-HSA-3299685)
+- Intrinsic apoptosis → *Intrinsic pathway for apoptosis* (R-HSA-109606)
+- Unfolded-protein / proteostasis → *Unfolded protein response (UPR)* (R-HSA-381119)
+- Mechanotransduction → *RHO GTPases activate ROCKs* (R-HSA-5627117), a narrower
+  sub-pathway than the full concept (flagged as partial)
+
+Pathway **activity** still comes only from the model's simulated state; Reactome
+supplies membership, the Human Protein Atlas supplies localisation. Membrane-phase
+and Ca²⁺/ionic stress have no single clean pathway term and stay model-only;
+cold-shock RNA (CIRBP/RBM3) and DNA-damage response are not simulated and are
+flagged, never faked.
+
+- Reactome data: CC0 1.0 (public domain). Milacic M, et al. (2024) *The Reactome
+  Pathway Knowledgebase 2024.* Nucleic Acids Res 52:D672.

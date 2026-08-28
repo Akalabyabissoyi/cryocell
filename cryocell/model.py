@@ -252,6 +252,7 @@ class Params:
     ps: float = 0.05                # um/s at 25 C
     vb: float = 0.20
     Viso: float = 1800.0
+    cell_type: str = "msc"          # morphology: msc | rbc | tcell (rendering only)
     adhesion: str = "suspension"
     rock_drug: str = "none"
     rock_conc: float = 0.0
@@ -316,7 +317,7 @@ class Series:
     KEYS = ("t T V Vn Vmito Vnuc Cin Cout Osme dTsc dPsi caCyt caER x pore mpt "
             "Dosm Dtox Dmem Dmech Piif frag fIce grain chanW squeeze gel fluid "
             "thick APL tension msOpen mt actin atp FA rock pMLC bleb yapN casp3 "
-            "apop necr piezo akt glass mcpa Pmito prot intf sigMT sigIF").split()
+            "apop necr piezo akt glass mcpa Pmito prot intf sigMT sigIF ros").split()
     def __init__(self):
         for k in self.KEYS: setattr(self, k, [])
         self.phase, self.events = [], []
@@ -455,7 +456,7 @@ def simulate(P: Params):
                     actin=actin, atp=atp, FA=FA, rock=rock, pMLC=pMLC, bleb=bleb,
                     yapN=yapN, casp3=casp3, apop=apop, necr=necr, piezo=piezo, akt=akt,
                     glass=clamp(1.0 - last_mob, 0, 1), mcpa=mcpa, Pmito=P_mito, prot=prot,
-                    intf=if_i, sigMT=sig_mt, sigIF=sig_if)
+                    intf=if_i, sigMT=sig_mt, sigIF=sig_if, ros=ros)
         for k, v in vals.items(): getattr(out, k).append(v)
         out.phase.append(phase)
 
