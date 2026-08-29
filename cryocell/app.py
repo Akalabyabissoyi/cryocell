@@ -14,8 +14,18 @@ from .model import Params, simulate, CPAS, ADHESION_STATES, ADDITIVES, osm_from_
 from .analysis import (simulate_population, knockout_screen, stability_check,
                        next_experiment)
 from .hpa import HPA, HPA_TOTALS, GEOMETRY, summary_line
-from .cellview import CellView, LAYERS, C, STRESS_PATHWAYS, stress_activity
+from .cellview import (CellView, LAYERS, C, STRESS_PATHWAYS, stress_activity,
+                       pathway_applicable, cell_has_compartment)
 from .pathways import REACTOME, REACTOME_RETRIEVED
+try:
+    from .pathways import HPA_COMPARTMENTS, HPA_RETRIEVED
+except Exception:
+    HPA_COMPARTMENTS, HPA_RETRIEVED = {}, ""
+_COMP_SHORT = {"cytosol":"cytosol","mitochondria":"mito","nucleoplasm":"nucleus","er":"ER",
+               "golgi":"Golgi","plasma_mem":"membrane","vesicles":"vesicles","nucleoli":"nucleoli",
+               "actin":"actin","focal_adh":"FA","interm_fil":"IF","microtubules":"MT",
+               "peroxisomes":"perox","lysosomes":"lyso","endosomes":"endo","centrosome":"centro",
+               "nuclear_mem":"nuc.env","lipid_drop":"lipid"}
 
 pg.setConfigOptions(antialias=True, background=C["surface1"], foreground=C["text2"])
 SER = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#4a3aa7"]
@@ -61,8 +71,12 @@ PRESETS = {
     # rarely forms intracellular ice even at fast cooling — but it is osmotically
     # fragile. No caspase apoptosis (no nucleus/mito), so apop_resist = 1.
     # Values are LITERATURE PRIORS (not calibrated). Lp ~1.6-3 um/min/atm (AQP1).
+    # RBC uses GLYCEROL, not DMSO — the standard clinical cryoprotectant for red
+    # cells (low-glycerol ~20% here; the high-glycerol method uses ~40%). Step
+    # dilution mimics deglycerolisation. Literature-prior parameters.
     "Cell — Red blood cell (prior)":     dict(cell_type="rbc", Viso=90, lp=1.8, ps=0.05,
                                          sterol=40, cyto=0.55, nuc_scale=0.4, adhesion="suspension",
+                                         cpa_key="glycerol", conc_pct=20, T_add=22, dilution="step",
                                          apop_resist=1.0, anoikis_resist=1.0, glycolytic=1.0, antioxidant=0.4),
     # T-lymphocyte — small round cell with a high nucleus-to-cytoplasm ratio and
     # only a thin cytoplasmic rim. Moderate Lp; a common DMSO cryopreservation
@@ -70,6 +84,27 @@ PRESETS = {
     "Cell — T lymphocyte (prior)":       dict(cell_type="tcell", Viso=180, lp=0.30, sterol=25,
                                          cyto=0.90, adhesion="suspension",
                                          apop_resist=0.0, anoikis_resist=0.0, glycolytic=0.0, antioxidant=0.0),
+    # Platelet — a tiny ANUCLEATE cell fragment (~8 fL) full of granules. Poorly
+    # served by conventional freezing; trehalose-loaded freeze-drying is the
+    # active research route (see the freeze-dry option). Literature-prior params.
+    "Cell — Platelet (prior)":           dict(cell_type="platelet", Viso=8, lp=0.40, sterol=25,
+                                         cyto=0.70, adhesion="suspension",
+                                         apop_resist=1.0, anoikis_resist=1.0, glycolytic=0.5, antioxidant=0.3),
+    # Freeze-drying (lyophilisation) — freeze, sublimate the water away, store dry
+    # at room temperature, rehydrate before use. Trehalose + a permeant water-
+    # replacement CPA (glycerol) is the best the model can do; full cytoplasmic
+    # protection needs INTRACELLULAR trehalose (an unsolved delivery problem), so
+    # recovery is honestly low. Active research for platelets and RBC.
+    "Freeze-dry — Platelet (trehalose)": dict(cell_type="platelet", Viso=8, lp=0.40, sterol=25, cyto=0.70,
+                                         adhesion="suspension", apop_resist=1.0, anoikis_resist=1.0,
+                                         glycolytic=0.5, antioxidant=0.3,
+                                         freeze_dry=True, cpa_key="glycerol", conc_pct=10,
+                                         additive="tre", add_conc=6, dry_residual=0.05),
+    "Freeze-dry — RBC (trehalose)":      dict(cell_type="rbc", Viso=90, lp=1.8, ps=0.05, sterol=40,
+                                         cyto=0.55, nuc_scale=0.4, adhesion="suspension",
+                                         apop_resist=1.0, anoikis_resist=1.0, glycolytic=1.0, antioxidant=0.4,
+                                         freeze_dry=True, cpa_key="glycerol", conc_pct=15,
+                                         additive="tre", add_conc=6, dry_residual=0.05),
 }
 
 # (attr, label, min, max, step, decimals, log)
@@ -276,7 +311,8 @@ class MechanoView(QWidget):
 
 
 _PHCOL = {"load":"#22d3ee","cool":"#3b82f6","seed":"#8b7ff0","store":"#6b7a99",
-          "warm":"#eb6834","melt":"#eb6834","dilute":"#22d3ee","recover":"#1baf7a","end":"#1baf7a"}
+          "warm":"#eb6834","melt":"#eb6834","dilute":"#22d3ee","recover":"#1baf7a","end":"#1baf7a",
+          "dry1":"#c99a4a","dry2":"#d9a441","drystore":"#a0895c","rehydrate":"#22d3ee"}
 
 class TimelineBar(QWidget):
     """Full-width freeze-thaw timeline: phase bands + temperature curve + scrubber."""
@@ -358,6 +394,19 @@ class MolecularView(QWidget):
                 Qt.AlignmentFlag.AlignCenter, "Run a protocol"); return
         w, h = self.width(), self.height()
         X = lambda fx: fx * w; Y = lambda fy: fy * h
+
+        # The FA-LINC axis is nucleus mechanotransduction; it does not exist in an
+        # anucleate cell (red blood cell, platelet).
+        if f.get("cell_type") in ("rbc", "platelet"):
+            cn = "red blood cell" if f.get("cell_type") == "rbc" else "platelet"
+            q.setPen(QColor(C["text2"])); q.setFont(QFont("", 12, QFont.Weight.Bold))
+            q.drawText(QRectF(20, h/2 - 30, w - 40, 24), Qt.AlignmentFlag.AlignHCenter,
+                       "Not applicable")
+            q.setPen(QColor(C["muted"])); q.setFont(QFont("", 9))
+            q.drawText(QRectF(20, h/2 - 2, w - 40, 60), Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap,
+                       f"A {cn} is anucleate — no nucleus, nuclear lamina or LINC complex, "
+                       "so there is no focal-adhesion-to-nucleus mechanotransduction axis.")
+            return
 
         # ---- model state → mechanical drivers along the FA–LINC axis ----
         FA = f.get("FA", 0); ten = f.get("tension", 0); act = f.get("actin", 0)
@@ -626,32 +675,39 @@ class StressView(QWidget):
                 Qt.AlignmentFlag.AlignCenter, "Run a protocol"); return
         w = self.width()
         act = stress_activity(f)
+        ctype = f.get("cell_type", "msc")
+        cname = {"msc": "MSC", "rbc": "red blood cell", "tcell": "T cell",
+                 "platelet": "platelet"}.get(ctype, ctype)
         q.setPen(QColor(C["text"])); q.setFont(QFont("", 12, QFont.Weight.Bold))
         q.drawText(QRectF(16, 10, w - 32, 22), Qt.AlignmentFlag.AlignLeft, "Cell-stress pathways")
         q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8))
         q.drawText(QRectF(16, 32, w - 32, 16), Qt.AlignmentFlag.AlignLeft,
-                   "activity from live model state · anchored to HPA compartments")
+                   f"live model state · Reactome + HPA · cell type: {cname}")
         y = 60; rowh = 52; barx = 20; barw = w - 40
         for key, label, hpa_key, _tgt, sev, sim in STRESS_PATHWAYS:
             a = float(act.get(key, 0.0))
             hp = HPA.get(hpa_key); rc = REACTOME.get(key)
-            if rc:                              # data-driven membership (Reactome, CC0)
-                comp = f"{rc['count']} genes · {rc['id']}"
+            applic = bool(sim) and pathway_applicable(key, ctype)
+            if not applic and sim:              # cell type lacks the machinery
+                comp = f"not applicable — {cname} lacks this compartment"
+            elif rc:                            # membership + HPA distribution, cell-filtered
+                dist = [(k, n) for k, n in HPA_COMPARTMENTS.get(key, [])
+                        if cell_has_compartment(ctype, k)][:3]
+                dtxt = " · ".join(f"{_COMP_SHORT.get(k, k)} {n}" for k, n in dist)
+                comp = f"{rc['count']} genes → {dtxt}" if dtxt else f"{rc['count']} genes · {rc['id']}"
             elif sim:
                 comp = f"{hp[0] if hp else ''} · derived from model state"
             else:
                 comp = f"{hp[0]}" if hp else ""
-            # label + compartment
-            q.setPen(QColor(C["text"] if sim else C["muted"]))
+            q.setPen(QColor(C["text"] if applic else C["muted"]))
             q.setFont(QFont("", 10, QFont.Weight.Bold))
             q.drawText(QRectF(barx, y, barw - 60, 16), Qt.AlignmentFlag.AlignLeft, label)
             q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8))
             q.drawText(QRectF(barx, y + 17, barw - 60, 14), Qt.AlignmentFlag.AlignLeft, comp)
-            # activity bar
             by = y + 34
             q.setBrush(QColor(C["surface2"])); q.setPen(QColor(C["border"]))
             q.drawRoundedRect(QRectF(barx, by, barw, 8), 4, 4)
-            if sim:
+            if applic:
                 col = QColor(C[sev]) if a > 0.45 else QColor(C["warn"]) if a > 0.2 else QColor(C["good"])
                 q.setBrush(col); q.setPen(Qt.PenStyle.NoPen)
                 q.drawRoundedRect(QRectF(barx, by, max(2.0, barw * a), 8), 4, 4)
@@ -659,13 +715,15 @@ class StressView(QWidget):
                 q.drawText(QRectF(barx, y, barw, 16), Qt.AlignmentFlag.AlignRight, f"{a*100:.0f}%")
             else:
                 q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8, QFont.Weight.Bold))
-                q.drawText(QRectF(barx, y, barw, 16), Qt.AlignmentFlag.AlignRight, "not simulated")
+                q.drawText(QRectF(barx, y, barw, 16), Qt.AlignmentFlag.AlignRight,
+                           "not simulated" if not sim else "n/a")
             y += rowh
         q.setPen(QColor(C["muted"])); q.setFont(QFont("", 7))
         q.drawText(QRectF(16, y + 4, w - 32, 42), Qt.AlignmentFlag.AlignLeft | Qt.TextFlag.TextWordWrap,
                    "Activity = simulated state (ROS, ΔΨm/MPT, caspase, RhoA-ROCK, protein "
-                   "denaturation, pore, Ca²⁺). Gene membership from Reactome (CC0, retrieved "
-                   f"{REACTOME_RETRIEVED}); compartment from the Human Protein Atlas.")
+                   "denaturation, pore, Ca²⁺). Gene membership from Reactome (CC0); the arrow "
+                   "shows how those genes distribute across compartments (Human Protein Atlas, "
+                   f"CC BY-SA, per-gene main location, retrieved {HPA_RETRIEVED}).")
 
 
 class Main(QMainWindow):
@@ -756,7 +814,18 @@ class Main(QMainWindow):
     def _preset(self, name):
         p = PRESETS.get(name)
         if not p: return
-        self.P = Params(**{**{k: v for k, v in vars(self.P).items() if k in Params.__annotations__}, **p})
+        # Cell-identity and mode fields must NOT persist across presets, or a cell
+        # picked after RBC/platelet would stay anucleate (or freeze-dried). Reset
+        # them to defaults unless the chosen preset sets them explicitly; protocol
+        # parameters (CPA, temperatures, rates) still carry over.
+        d = Params()
+        RESET = ("cell_type", "freeze_dry", "Viso", "lp", "ps", "sterol", "cyto", "nuc_scale",
+                 "apop_resist", "anoikis_resist", "antioxidant", "glycolytic",
+                 "dry_residual", "dry_hours", "drystore_days")
+        cur = {k: v for k, v in vars(self.P).items() if k in Params.__annotations__}
+        for k in RESET:
+            cur[k] = getattr(d, k)
+        self.P = Params(**{**cur, **p})
         for attr, w in self.widgets.items():
             val = getattr(self.P, attr, None)
             if val is None: continue
@@ -973,9 +1042,12 @@ class Main(QMainWindow):
         self.hero.setText(f"{R['S_24']*100:.0f}%")
         colr = C["good"] if R['S_24'] > .7 else C["warn"] if R['S_24'] > .4 else C["crit"]
         self.hero.setStyleSheet(f"color:{colr}")
+        methb = R.get('metHb', 0.0)
+        methb_txt = (f" · methaemoglobin {methb*100:.0f}% (O₂-carrying lost)"
+                     if self.P.cell_type == "rbc" and methb > 0.01 else "")
         self.hero2.setText(f"viable at {self.P.recover_h:.0f} h post-thaw · membrane-integrity "
                            f"{R['S_imm']*100:.0f}% · settles to {R['S_72']*100:.0f}% by 72 h "
-                           f"(delayed-onset death) · functional recovery {R['F_rec']*100:.0f}%")
+                           f"(delayed-onset death) · functional recovery {R['F_rec']*100:.0f}%{methb_txt}")
         self.quad.setText(f"live {R['liveFrac']*100:.0f}%   apoptotic {R['apopFrac']*100:.0f}%   "
                           f"necrotic {R['necrFrac']*100:.0f}%")
         rows = [("Intracellular ice (+ propagation)", R['D_iif']), ("Osmotic / solution effects", R['D_osm']),
@@ -1069,7 +1141,9 @@ class Main(QMainWindow):
         self.mechano.set_frame(f)
         self.molec.set_frame(f)
         self.stress.set_frame(f)
-        names = dict(load="CPA loading", cool="Cooling", seed="Seeding", store="Storage",
+        names = dict(dry1="Primary drying", dry2="Secondary drying", drystore="Dry storage",
+                     rehydrate="Rehydration",
+                     load="CPA loading", cool="Cooling", seed="Seeding", store="Storage",
                      warm="Warming", melt="Melting", dilute="Dilution", recover="Recovery", end="End")
         tt = self.S.t[i]
         tstr = f"{tt/60:.1f} min" if tt < 7200 else f"{tt/3600:.1f} h"

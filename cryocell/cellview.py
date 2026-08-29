@@ -142,6 +142,26 @@ STRESS_PATHWAYS = [
     ("dna",  "DNA-damage response",                 "nucleoplasm",  None,       "muted", False),
 ]
 
+# which compartments a cell type actually has (None = all, for nucleated cells).
+# A mature RBC is anucleate and organelle-free (cytosol + membrane only); a
+# platelet is anucleate but keeps mitochondria, granules, actin and a marginal
+# microtubule band.
+CELL_COMPARTMENTS = {
+    "rbc": {"cytosol", "plasma_mem"},
+    "platelet": {"cytosol", "plasma_mem", "mitochondria", "vesicles", "actin", "microtubules"},
+}
+def cell_has_compartment(cell_type, comp):
+    s = CELL_COMPARTMENTS.get(cell_type)
+    return True if s is None else comp in s
+
+def pathway_applicable(key, cell_type):
+    """A stress pathway only applies if the cell has the machinery for it."""
+    if cell_type == "rbc":        # no nucleus, mitochondria or ER
+        return key in ("oxid", "memb", "ca")
+    if cell_type == "platelet":   # anucleate: no nuclear DNA/RNA responses
+        return key not in ("cold", "dna")
+    return True
+
 def stress_activity(f):
     """Per-frame activity (0–1) of each stress pathway, from real model state."""
     c = lambda v: float(np.clip(v, 0, 1))
@@ -764,8 +784,8 @@ class CellView(QWidget):
         # anucleate and organelle-free, its interior packed with haemoglobin; a
         # T lymphocyte is small with a high nucleus-to-cytoplasm ratio.
         ctype = f.get("cell_type", "msc")
-        has_org = ctype != "rbc"
-        has_nucleus = ctype != "rbc"
+        has_org = ctype != "rbc"                     # RBC has no organelles; platelet keeps granules
+        has_nucleus = ctype not in ("rbc", "platelet")  # both are anucleate
 
         # ---- cytoplasmic interior ----
         if self.render_mode != "phase":
@@ -1204,7 +1224,9 @@ class CellView(QWidget):
         dia = 2 * rmean / max(px_um, 1e-6)              # cell diameter, microns
 
         # title strip: phase, temperature, time
-        names = dict(load="CPA loading", cool="Cooling", seed="Seeding", store="Storage",
+        names = dict(dry1="Primary drying", dry2="Secondary drying", drystore="Dry storage",
+                     rehydrate="Rehydration",
+                     load="CPA loading", cool="Cooling", seed="Seeding", store="Storage",
                      warm="Warming", melt="Melting", dilute="Dilution", recover="Recovery", end="End")
         q.setPen(col("text")); q.setFont(QFont("", 12, QFont.Weight.Bold))
         q.drawText(QPointF(18, 26), names.get(f.get("phase",""), f.get("phase","")))

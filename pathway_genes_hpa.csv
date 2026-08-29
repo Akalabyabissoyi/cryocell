@@ -1,0 +1,205 @@
+pathway,pathway_name,reactome_id,gene,hpa_main_location,mapped_compartment
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,AQP8,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,ATOX1,Nucleoplasm,nucleoplasm
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,ATP7A,Golgi apparatus,golgi
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,CAT,Vesicles,vesicles
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,CCS,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,CYBA,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,CYBB,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,CYCS,Mitochondria,mitochondria
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,ERO1A,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GPX1,Cytosol,cytosol
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GPX2,Cytosol,cytosol
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GPX3,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GPX5,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GPX6,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GPX7,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GPX8,Plasma membrane; Cytosol,cytosol; plasma_mem
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GSR,Cytosol,cytosol
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,GSTP1,Mitochondria; Cytosol,cytosol; mitochondria
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,NCF1,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,NCF2,Cytosol,cytosol
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,NCF4,Cytosol,cytosol
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,NOX4,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,NOX5,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,NUDT2,Nucleoplasm,nucleoplasm
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,P4HB,Endoplasmic reticulum,er
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,PRDX1,Mitochondria,mitochondria
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,PRDX2,Cytosol,cytosol
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,PRDX3,Vesicles; Mitochondria,mitochondria; vesicles
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,PRDX5,Mitochondria,mitochondria
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,PRDX6,Plasma membrane; Cytosol,cytosol; plasma_mem
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,SOD1,Nucleoplasm,nucleoplasm
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,SOD2,Mitochondria,mitochondria
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,SOD3,,
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,TXN,Nucleoplasm; Cytosol,cytosol; nucleoplasm
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,TXN2,Mitochondria,mitochondria
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,TXNRD1,Nucleoplasm,nucleoplasm
+oxid,Detoxification of reactive oxygen species,R-HSA-3299685,TXNRD2,Mitochondria; Cytosol,cytosol; mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,AKT1,Nucleoplasm; Microtubules; Principal piece; End piece,microtubules; nucleoplasm; other
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,AKT2,Vesicles; Cytosol,cytosol; vesicles
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,AKT3,Nucleoplasm; Golgi apparatus; Cytosol,cytosol; golgi; nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,APAF1,Nucleoplasm; Cytosol,cytosol; nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,APIP,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,AVEN,Plasma membrane; Actin filaments,actin; plasma_mem
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BAD,Mitochondria,mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BAK1,,
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BAX,Vesicles,vesicles
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BBC3,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BCL2,Mitochondria,mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BCL2L1,Mitochondria,mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BCL2L11,Mitochondria,mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BID,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,BMF,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,C1QBP,Plasma membrane,plasma_mem
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,CARD8,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,CASP3,Mitochondria,mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,CASP7,Nucleoplasm; Nucleoli fibrillar center,nucleoli; nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,CASP8,Mitochondria; Cytosol,cytosol; mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,CASP9,Mitochondria,mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,CDKN2A,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,CYCS,Mitochondria,mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,DIABLO,Mitochondria,mitochondria
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,DYNLL1,Nucleoplasm; Cytosol; Mid piece; Principal piece,cytosol; nucleoplasm; other
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,DYNLL2,Nucleoplasm; Cytosol; Mid piece; Principal piece,cytosol; nucleoplasm; other
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,E2F1,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,GSDMD,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,GSDME,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,GZMB,Calyx,other
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,MAPK1,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,MAPK3,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,MAPK8,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,NMT1,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,PMAIP1,Vesicles,vesicles
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,PPP1R13B,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,PPP3CC,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,PPP3R1,Plasma membrane,plasma_mem
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,SEPTIN4,Annulus,other
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,SFN,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,STAT3,Nucleoplasm; Cytosol,cytosol; nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,TFDP1,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,TFDP2,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,TP53,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,TP53BP2,Cell Junctions; Cytosol,cytosol; plasma_mem
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,TP63,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,TP73,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,UACA,Nucleoplasm,nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,XIAP,Nucleoplasm; Cytosol,cytosol; nucleoplasm
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,YWHAB,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,YWHAE,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,YWHAG,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,YWHAH,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,YWHAQ,Cytosol,cytosol
+apop,Intrinsic pathway for apoptosis,R-HSA-109606,YWHAZ,Cytosol,cytosol
+prot,Unfolded protein response (UPR),R-HSA-381119,ACADVL,Mitochondria,mitochondria
+prot,Unfolded protein response (UPR),R-HSA-381119,ADD1,Plasma membrane,plasma_mem
+prot,Unfolded protein response (UPR),R-HSA-381119,ARFGAP1,Golgi apparatus,golgi
+prot,Unfolded protein response (UPR),R-HSA-381119,ASNS,Cytosol,cytosol
+prot,Unfolded protein response (UPR),R-HSA-381119,ATF3,Nucleoplasm; Nucleoli; Basal body,nucleoli; nucleoplasm; other
+prot,Unfolded protein response (UPR),R-HSA-381119,ATF4,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,ATF6,Nucleoplasm; Golgi apparatus,golgi; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,ATF6B,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,ATP6V0D1,,
+prot,Unfolded protein response (UPR),R-HSA-381119,CALR,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,CCL2,Golgi apparatus,golgi
+prot,Unfolded protein response (UPR),R-HSA-381119,CEBPB,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,CEBPG,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,CREB3,Cytosol,cytosol
+prot,Unfolded protein response (UPR),R-HSA-381119,CREB3L1,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,CREB3L2,Nucleoplasm; Endoplasmic reticulum,er; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,CREB3L3,,
+prot,Unfolded protein response (UPR),R-HSA-381119,CREB3L4,Nucleoplasm; Nuclear membrane,nuclear_mem; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,CREBRF,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,CTDSP2,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,CUL7,,
+prot,Unfolded protein response (UPR),R-HSA-381119,CXCL8,Golgi apparatus,golgi
+prot,Unfolded protein response (UPR),R-HSA-381119,CXXC1,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,DCP2,Nucleoplasm; Cytoplasmic bodies,cytosol; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,DCSTAMP,,
+prot,Unfolded protein response (UPR),R-HSA-381119,DCTN1,Microtubules,microtubules
+prot,Unfolded protein response (UPR),R-HSA-381119,DDIT3,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,DDX11,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,DIS3,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,DNAJB11,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,DNAJB9,Endoplasmic reticulum; Cytosol,cytosol; er
+prot,Unfolded protein response (UPR),R-HSA-381119,DNAJC3,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,EDEM1,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,EIF2AK3,Nucleoplasm; Cytosol,cytosol; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,EIF2S1,Cytosol,cytosol
+prot,Unfolded protein response (UPR),R-HSA-381119,EIF2S2,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,EIF2S3,,
+prot,Unfolded protein response (UPR),R-HSA-381119,ERN1,,
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC1,Nuclear bodies,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC2,Nucleoplasm; Nucleoli,nucleoli; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC3,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC4,Nucleoplasm; Cytosol,cytosol; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC5,Nucleoli,nucleoli
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC6,,
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC7,Nuclear speckles,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC8,Nucleoli fibrillar center; Mitotic chromosome,nucleoli; other
+prot,Unfolded protein response (UPR),R-HSA-381119,EXOSC9,Nucleoli,nucleoli
+prot,Unfolded protein response (UPR),R-HSA-381119,EXTL1,Centrosome; Basal body,centrosome; other
+prot,Unfolded protein response (UPR),R-HSA-381119,EXTL2,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,EXTL3,,
+prot,Unfolded protein response (UPR),R-HSA-381119,FKBP14,Cytosol,cytosol
+prot,Unfolded protein response (UPR),R-HSA-381119,GFPT1,Nucleoplasm; Nucleoli,nucleoli; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,GOSR2,Nucleoplasm; Golgi apparatus,golgi; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,GSK3A,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,HDGF,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,HERPUD1,Plasma membrane; Cytosol,cytosol; plasma_mem
+prot,Unfolded protein response (UPR),R-HSA-381119,HSP90B1,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,HSPA5,Cytosol; Annulus,cytosol; other
+prot,Unfolded protein response (UPR),R-HSA-381119,HYOU1,,
+prot,Unfolded protein response (UPR),R-HSA-381119,IGFBP1,Golgi apparatus,golgi
+prot,Unfolded protein response (UPR),R-HSA-381119,KDELR3,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,KHSRP,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,KLHDC3,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,LMNA,Nuclear speckles,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,MBTPS1,,
+prot,Unfolded protein response (UPR),R-HSA-381119,MBTPS2,Nucleoplasm; Mitochondria; Cytosol,cytosol; mitochondria; nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,MYDGF,,
+prot,Unfolded protein response (UPR),R-HSA-381119,NFYA,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,NFYB,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,NFYC,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,PARN,Nuclear speckles,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,PDIA5,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,PDIA6,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,PLA2G4B,,
+prot,Unfolded protein response (UPR),R-HSA-381119,PPP2R5B,,
+prot,Unfolded protein response (UPR),R-HSA-381119,PREB,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,SEC31A,Vesicles; Cytosol,cytosol; vesicles
+prot,Unfolded protein response (UPR),R-HSA-381119,SERP1,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,SHC1,Cytosol,cytosol
+prot,Unfolded protein response (UPR),R-HSA-381119,SRPRA,,
+prot,Unfolded protein response (UPR),R-HSA-381119,SRPRB,Plasma membrane,plasma_mem
+prot,Unfolded protein response (UPR),R-HSA-381119,SSR1,Endoplasmic reticulum,er
+prot,Unfolded protein response (UPR),R-HSA-381119,SULT1A3,,
+prot,Unfolded protein response (UPR),R-HSA-381119,SYVN1,Nucleoplasm,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,TATDN2,Nuclear speckles,nucleoplasm
+prot,Unfolded protein response (UPR),R-HSA-381119,TLN1,Focal adhesion sites; Cytosol,cytosol; focal_adh
+prot,Unfolded protein response (UPR),R-HSA-381119,TPP1,,
+prot,Unfolded protein response (UPR),R-HSA-381119,TSPYL2,,
+prot,Unfolded protein response (UPR),R-HSA-381119,WFS1,,
+prot,Unfolded protein response (UPR),R-HSA-381119,WIPI1,Golgi apparatus,golgi
+prot,Unfolded protein response (UPR),R-HSA-381119,XBP1,,
+prot,Unfolded protein response (UPR),R-HSA-381119,YIF1A,Golgi apparatus; Vesicles,golgi; vesicles
+prot,Unfolded protein response (UPR),R-HSA-381119,ZBTB17,,
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,CFL1,Plasma membrane,plasma_mem
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,LIMK1,Nuclear speckles; Cytosol,cytosol; nucleoplasm
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,LIMK2,Nucleoplasm,nucleoplasm
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,MYH10,Actin filaments,actin
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,MYH11,Plasma membrane; Cytosol,cytosol; plasma_mem
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,MYH14,Nucleoplasm,nucleoplasm
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,MYH9,Plasma membrane; Actin filaments,actin; plasma_mem
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,MYL12B,,
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,MYL6,,
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,MYL9,,
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,PAK1,Plasma membrane; Cytosol,cytosol; plasma_mem
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,PPP1CB,Nucleoplasm,nucleoplasm
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,PPP1R12A,Actin filaments; Cytosol,actin; cytosol
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,PPP1R12B,Plasma membrane; Actin filaments,actin; plasma_mem
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,RHOA,Plasma membrane; Cytosol,cytosol; plasma_mem
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,RHOB,,
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,RHOC,,
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,ROCK1,,
+mech,RHO GTPases activate ROCKs,R-HSA-5627117,ROCK2,Cytosol,cytosol

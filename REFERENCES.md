@@ -257,3 +257,67 @@ flagged, never faked.
 
 - Reactome data: CC0 1.0 (public domain). Milacic M, et al. (2024) *The Reactome
   Pathway Knowledgebase 2024.* Nucleic Acids Res 52:D672.
+
+## H. Extended cryoprotectant library and cell types
+
+- Additional penetrating CPAs (formamide, dimethylformamide, dimethylacetamide,
+  methanol, 2,3-butanediol) and the dextran additive are added with **exact
+  molar masses** and **literature-typical** transport/thermodynamic parameters
+  (sigma, EaPs, Tg', eutectic, water-replacement). These are priors, not
+  measurements, and are flagged as such; tune against data before quoting numbers.
+- RBC cryopreservation uses **glycerol** (not DMSO); the RBC preset reflects this.
+- Cell types RBC and platelet are anucleate; platelet retains cytoplasmic
+  granules. Parameters (size, Lp, cholesterol) are literature priors.
+
+## I. Freeze-drying (lyophilisation) — first version
+
+An optional freeze_dry mode replaces frozen storage with: freeze -> primary
+drying (ice sublimation) -> secondary drying (bound-water removal) -> dry storage
+at room temperature -> rehydration. The desiccation-injury model is built on the
+engine's existing water-replacement, protein-stability and glass physics:
+
+- As residual water falls below ~30%, protein and membrane are injured unless
+  water-replacement substitutes for the lost hydration shell. Protection comes
+  from an INTRACELLULAR permeant CPA (e.g. glycerol, wRepl 0.65) plus an
+  extracellular sugar at the membrane; a non-penetrating sugar alone cannot
+  protect the cytoplasm, so recovery is low.
+- Rehydration washes out the CPA and lyses cells whose membranes were damaged.
+- Honest outcome: freeze-dried platelets and red cells recover poorly here (single
+  digits to ~15%), matching the real, unsolved state of the field. Full protection
+  needs intracellular trehalose delivery, which the model does not simulate.
+- Crowe, Crowe & Chapman 1984 (Science 223:701, water-replacement); Wolkers et al.
+  2001, Crowe 2005 (trehalose, dried platelets). First-version, literature-motivated.
+
+## J. Haemoglobin oxidation in dried red cells
+
+Methaemoglobin (metHb, Fe3+) formation is the dominant quality/shelf-life failure
+for freeze-dried RBC: oxyHb oxidises during warm secondary drying and, above all,
+during dry storage (~1%/day at room temperature here, blunted by antioxidant
+capacity). metHb cannot carry oxygen, so it directly caps FUNCTIONAL recovery even
+when the membrane survives - a red cell can be intact yet functionally dead. RBC-
+specific; not applied to platelets. Reported as a metHb % in the outcome.
+- Bosman et al.; Wolkers, Crowe on dried-cell oxidation; standard transfusion
+  metHb quality limits. First-version, literature-motivated.
+
+## K. Per-gene HPA compartment distribution
+
+Each Reactome stress pathway's gene list is cross-referenced against the Human
+Protein Atlas per-gene subcellular main location, so the panel shows the true
+compartment DISTRIBUTION of the pathway's proteins (e.g. UPR: nucleus, cytosol,
+ER, Golgi) rather than a single hand-assigned compartment. Only the derived
+counts are bundled (cryocell/pathways.py: HPA_COMPARTMENTS), not the HPA table.
+- Human Protein Atlas, proteinatlas.org, CC BY-SA 4.0. Thul et al. 2017,
+  Science 356:eaal3321 (Cell Atlas). Per-gene main location, fetched via the HPA API.
+
+## L. Cell-type-aware pathways + verifiable gene table
+
+- The stress-pathway panel is now cell-type aware: an anucleate cell (RBC,
+  platelet) only shows pathways whose compartments it actually has. Nucleus- /
+  mitochondria- / ER-dependent pathways are flagged "not applicable" rather than
+  shown with a (meaningless) distribution, and the FA-LINC nucleus-mechanotransduction
+  panel reports "not applicable" for anucleate cells.
+- Every pathway gene and its HPA main location is exported to
+  pathway_genes_hpa.csv (pathway, Reactome ID, gene, HPA main location, mapped
+  compartment) and bundled as pathways.py:GENE_HPA, so a researcher can verify each
+  call directly against the HPA API:
+  https://www.proteinatlas.org/api/search_download.php?search=GENE&format=json&columns=g,scml

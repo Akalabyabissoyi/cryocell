@@ -52,6 +52,14 @@ CPAS = {
     "glycerol": dict(name="Glycerol",            M=92.09, rho=1.261, vbar=0.0731, psRel=0.12, tox=0.55, sterolHit=0.35, permeant=True,  raisesTm=False, iri=0.02, sigma=0.88, EaPs=63e3,  Bvir=0.023, TgP=-65.0,  Teut=-46.5, wRepl=0.65, denat=0.15),
     "eg":       dict(name="Ethylene glycol",     M=62.07, rho=1.113, vbar=0.0558, psRel=1.60, tox=0.75, sterolHit=0.55, permeant=True,  raisesTm=False, iri=0.02, sigma=0.80, EaPs=57e3,  Bvir=0.037, TgP=-110.0, Teut=-51.0, wRepl=0.40, denat=0.55),
     "pg":       dict(name="Propylene glycol",    M=76.09, rho=1.036, vbar=0.0734, psRel=0.90, tox=1.35, sterolHit=0.95, permeant=True,  raisesTm=False, iri=0.03, sigma=0.90, EaPs=60e3,  Bvir=0.061, TgP=-108.0, Teut=-60.0, wRepl=0.40, denat=1.10),
+    # additional penetrating agents (literature-typical priors, not calibrated):
+    # small amides and alcohols used in cell cryopreservation and vitrification
+    # cocktails. Exact MW; sigma / EaPs / Tg' / etc. are literature-typical values.
+    "formamide":dict(name="Formamide",           M=45.04, rho=1.133, vbar=0.0398, psRel=1.40, tox=1.10, sterolHit=0.80, permeant=True,  raisesTm=False, iri=0.02, sigma=0.70, EaPs=50e3,  Bvir=0.050, TgP=-80.0,  Teut=-50.0, wRepl=0.45, denat=0.70),
+    "dmf":      dict(name="Dimethylformamide",   M=73.09, rho=0.944, vbar=0.0774, psRel=1.10, tox=1.30, sterolHit=0.90, permeant=True,  raisesTm=False, iri=0.03, sigma=0.78, EaPs=56e3,  Bvir=0.080, TgP=-100.0, Teut=-60.0, wRepl=0.40, denat=1.00),
+    "dma":      dict(name="Dimethylacetamide",   M=87.12, rho=0.937, vbar=0.0930, psRel=0.90, tox=1.20, sterolHit=0.90, permeant=True,  raisesTm=False, iri=0.03, sigma=0.82, EaPs=58e3,  Bvir=0.090, TgP=-100.0, Teut=-60.0, wRepl=0.40, denat=0.90),
+    "methanol": dict(name="Methanol",            M=32.04, rho=0.792, vbar=0.0405, psRel=2.00, tox=1.50, sterolHit=0.60, permeant=True,  raisesTm=False, iri=0.01, sigma=0.65, EaPs=45e3,  Bvir=0.030, TgP=-100.0, Teut=-80.0, wRepl=0.35, denat=0.60),
+    "bd23":     dict(name="2,3-Butanediol",      M=90.12, rho=0.987, vbar=0.0913, psRel=0.50, tox=1.00, sterolHit=0.85, permeant=True,  raisesTm=False, iri=0.04, sigma=0.90, EaPs=62e3,  Bvir=0.100, TgP=-60.0,  Teut=-50.0, wRepl=0.50, denat=0.40),
     "tre":      dict(name="Trehalose",           M=342.3, rho=1.580, vbar=0.2200, psRel=0.00, tox=0.10, sterolHit=0.05, permeant=False, raisesTm=True,  iri=0.25, sigma=1.00, EaPs=56.6e3,Bvir=0.250, TgP=-29.5,  Teut=-40.0, wRepl=1.00, denat=0.00),
     "sd":       dict(name="Self-deactivating CPA", M=150.0, rho=1.150, vbar=0.1200, psRel=0.55, tox=0.95, sterolHit=0.85, permeant=True, raisesTm=True,  iri=0.05, sigma=0.85, EaPs=56e3,  Bvir=0.120, TgP=-115.0, Teut=-65.0, wRepl=0.40, denat=0.85),
     "none":     dict(name="No CPA",              M=78.13, rho=1.100, vbar=0.0710, psRel=0.00, tox=0.00, sterolHit=0.00, permeant=False, raisesTm=False, iri=0.00, sigma=1.00, EaPs=56.6e3,Bvir=0.000, TgP=-125.0, Teut=-73.0, wRepl=0.00, denat=0.00),
@@ -78,6 +86,7 @@ ADDITIVES = {
     "pll":   dict(name="Polyampholyte (COOH-PLL)",   M=5000,   iri=0.55, membStab=0.85, wRepl=0.40, tox=0.08),
     "afp":   dict(name="Antifreeze protein (AFP-III)",M=7000,  iri=0.90, membStab=0.30, wRepl=0.20, tox=0.35),
     "pva":   dict(name="PVA (polyvinyl alcohol)",    M=30000,  iri=0.70, membStab=0.25, wRepl=0.15, tox=0.05),
+    "dex":   dict(name="Dextran (40-70 kDa)",        M=70000,  iri=0.15, membStab=0.50, wRepl=0.25, tox=0.02),
 }
 
 ADHESION_STATES = {
@@ -262,6 +271,14 @@ class Params:
     gsmtx: float = 0.0
     T_recover: float = 37.0
     recover_h: float = 24.0
+    # --- freeze-drying (lyophilisation): freeze, then remove water by sublimation
+    #     and store dry at room temperature, rehydrate before use. First-version,
+    #     literature-motivated desiccation model built on the water-replacement,
+    #     protein-stability and glass physics already in the engine.
+    freeze_dry: bool = False        # lyophilise instead of frozen storage
+    dry_residual: float = 0.05      # residual water fraction after secondary drying
+    dry_hours: float = 24.0         # total drying time (primary + secondary)
+    drystore_days: float = 30.0     # dry storage time at room temperature
     # --- cell-line robustness phenotype (0 = primary/normal, e.g. hMSC;
     #     higher = the hardiness typical of transformed lines like HeLa, A549).
     #     All default to 0, so the hMSC calibration is unchanged. These act on
@@ -386,6 +403,8 @@ def simulate(P: Params):
     P_mito = D_mitoice = mcpa = 0.0  # mito ice: probability, lethality, matrix CPA conc
     prot = 1.0; D_prot = 0.0         # native/functional protein fraction; denaturation damage
     D_swell = D_sol = D_mech = D_energy = 0.0
+    D_desicc = 0.0                       # desiccation injury (freeze-drying)
+    metHb = 0.0                          # methaemoglobin fraction (dried RBC oxidation)
     minV = maxV = 1.0
     ice_vol = 0.0
 
@@ -910,14 +929,27 @@ def simulate(P: Params):
                           dur=(P.hold_min * 60 if i == n_add else max(30, P.hold_min * 60 / n_add))))
     steps.append(dict(kind="cool", frm=P.T_add, to=P.T_seed, rate=P.CR))
     steps.append(dict(kind="seed", T=P.T_seed, dur=20))
-    steps.append(dict(kind="cool", frm=P.T_seed, to=P.T_store, rate=P.CR, ice=True))
-    steps.append(dict(kind="store", T=P.T_store, dur=P.days * 86400, ice=True))
-    steps.append(dict(kind="warm", frm=P.T_store, to=0.0, rate=P.WR, ice=True))
-    steps.append(dict(kind="melt", T=0.0, dur=15))
-    steps.append(dict(kind="dilute", T=P.T_dil, dur=600))
-    steps.append(dict(kind="recover", T=P.T_recover, dur=P.recover_h * 3600))
+    if P.freeze_dry:
+        # freeze to a primary-drying temperature, sublimate ice (primary drying),
+        # warm to remove bound water (secondary drying), store dry, then rehydrate.
+        steps.append(dict(kind="cool", frm=P.T_seed, to=-40.0, rate=P.CR, ice=True))
+        steps.append(dict(kind="dry", T=-40.0, dur=P.dry_hours * 3600 * 0.6,
+                          residual=0.20, ice=True, phase="dry1"))     # primary drying
+        steps.append(dict(kind="dry", T=20.0, dur=P.dry_hours * 3600 * 0.4,
+                          residual=P.dry_residual, phase="dry2"))      # secondary drying
+        steps.append(dict(kind="drystore", T=22.0, dur=P.drystore_days * 86400, phase="drystore"))
+        steps.append(dict(kind="rehydrate", T=P.T_dil, dur=300, phase="rehydrate"))
+        steps.append(dict(kind="recover", T=P.T_recover, dur=P.recover_h * 3600))
+    else:
+        steps.append(dict(kind="cool", frm=P.T_seed, to=P.T_store, rate=P.CR, ice=True))
+        steps.append(dict(kind="store", T=P.T_store, dur=P.days * 86400, ice=True))
+        steps.append(dict(kind="warm", frm=P.T_store, to=0.0, rate=P.WR, ice=True))
+        steps.append(dict(kind="melt", T=0.0, dur=15))
+        steps.append(dict(kind="dilute", T=P.T_dil, dur=600))
+        steps.append(dict(kind="recover", T=P.T_recover, dur=P.recover_h * 3600))
 
-    BUDGET = dict(add=50, cool=150, seed=8, store=20, warm=120, melt=10, dilute=90, recover=150)
+    BUDGET = dict(add=50, cool=150, seed=8, store=20, warm=120, melt=10, dilute=90, recover=150,
+                  dry=70, drystore=15, rehydrate=45)
     n_cool = sum(1 for s in steps if s["kind"] == "cool") or 1
     ds = P.dt_scale
     next_frame = 0.0
@@ -966,6 +998,60 @@ def simulate(P: Params):
                     log("stodeg", "CPA degraded during storage - protection lost before thaw")
                 if T_C <= tg_run:
                     log("arrest", "Below Tg': cleavage chemistry arrested, CPA intact in storage")
+        elif s["kind"] == "dry":
+            # sublimation removes water toward a residual target; desiccation
+            # injures protein and membrane unless water-replacement (an intracellular
+            # permeant CPA, or an extracellular sugar at the surface) substitutes for
+            # the lost hydration shell. Crowe et al. 1984 (water-replacement).
+            ph = s.get("phase", "dry"); ice = bool(s.get("ice")); T_C = s["T"]
+            target = s["residual"] * Vw0; nsub = 40; dt = s["dur"] / nsub
+            frame_period = max(1e-6, s["dur"] / BUDGET["dry"]); next_frame = t
+            for _ in range(nsub):
+                Vw += (target - Vw) * (1 - math.exp(-3.0 / nsub))
+                Vw = max(Vw, 0.01 * Vw0)
+                dsev = clamp((0.30 - Vw / Vw0) / 0.30, 0, 1)
+                Cin_now = n_c / max(Vw, 1e-9)
+                intracell = cpa["wRepl"] * clamp(Cin_now / 2.0, 0, 1) if cpa["permeant"] else 0.0
+                wr = clamp(0.65 * intracell + add["wRepl"] * add_pres, 0, 0.95)
+                inc = dsev * (1 - wr) / nsub
+                D_desicc = clamp(D_desicc + inc * 1.6, 0, 1)
+                D_mem = clamp(D_mem + inc * 0.8 * (1 - memb_prot), 0, 1)
+                prot = clamp(prot - inc * 1.2, 0, 1)
+                # haemoglobin oxidation (oxyHb Fe2+ -> metHb Fe3+): a red cell dried
+                # in air oxidises as it warms and loses its protective hydration,
+                # blunted by antioxidant capacity. RBC-specific quality failure.
+                if P.cell_type == "rbc" and T_C > -20:
+                    metHb = clamp(metHb + 0.06 * (1 - 0.8 * P.antioxidant) / nsub, 0, 1)
+                t += dt
+                if t >= next_frame: push(ph); next_frame = t + frame_period
+            if D_desicc > 0.4: log("desicc", "Desiccation damage during drying - hydration shell lost")
+            if metHb > 0.15: log("methb", "Haemoglobin oxidising to methaemoglobin during drying")
+        elif s["kind"] == "drystore":
+            ph = s.get("phase", "drystore"); T_C = s["T"]; ice = False
+            nsub = 15; dt = s["dur"] / nsub
+            frame_period = max(1e-6, s["dur"] / BUDGET["drystore"]); next_frame = t
+            days = s["dur"] / 86400.0
+            for _ in range(nsub):
+                D_desicc = clamp(D_desicc + 0.015 / nsub, 0, 1)      # slow oxidation in the dry state
+                # methaemoglobin keeps accumulating in dry storage (~3%/day at 22 C
+                # unprotected), the dominant shelf-life limit for dried red cells.
+                if P.cell_type == "rbc":
+                    metHb = clamp(metHb + 0.011 * (days / nsub) * (1 - 0.8 * P.antioxidant), 0, 1)
+                t += dt
+                if t >= next_frame: push(ph); next_frame = t + frame_period
+        elif s["kind"] == "rehydrate":
+            ph = s.get("phase", "rehydrate"); T_C = s["T"]; ice = False
+            nsub = 20; dt = s["dur"] / nsub
+            frame_period = max(1e-6, s["dur"] / BUDGET["rehydrate"]); next_frame = t
+            e_c = 0.0; e_s = salt_e0; e_f = 0.0        # rehydration buffer is CPA-free
+            for _ in range(nsub):
+                Vw += (Vw0 - Vw) * (1 - math.exp(-3.0 / nsub))       # water returns
+                n_c *= (1 - 0.8 / nsub)                              # CPA washes out into the buffer
+                lysis = clamp(D_mem + D_desicc - 0.5, 0, 1) / nsub * 0.6
+                D_mem = clamp(D_mem + lysis, 0, 1)
+                t += dt
+                if t >= next_frame: push(ph); next_frame = t + frame_period
+            log("rehyd", "Rehydration - damaged cells lyse as water returns")
         elif s["kind"] == "melt":
             T_C = 0.0
             wr_pen = clamp(1 - math.log10(max(P.WR, 1)) / 3.2, 0, 1)
@@ -1032,7 +1118,7 @@ def simulate(P: Params):
     D_energy = clamp(D_energy, 0, 1)
     D_apop = clamp(apop + necr, 0, 0.98)
 
-    S_imm = (1 - D_iif) * (1 - D_osm) * (1 - D_mem) * (1 - D_tox) * (1 - D_mech)
+    S_imm = (1 - D_iif) * (1 - D_osm) * (1 - D_mem) * (1 - D_tox) * (1 - D_mech) * (1 - D_desicc)
     S_24 = S_imm * (1 - D_apop)
     # Delayed-onset death (CIDOC): ROS and primed caspases keep killing cells
     # for 1-3 days after thaw, beyond the immediate recovery window. Project the
@@ -1047,6 +1133,9 @@ def simulate(P: Params):
              * (0.45 + 0.55 * dPsi) * (0.30 + 0.70 * clamp(atp, 0, 1))
              * (0.40 + 0.60 * yapN) * (0.55 + 0.45 * akt)
              * (0.35 + 0.65 * prot))
+    # an oxidised red cell can be membrane-intact yet functionally dead: metHb
+    # cannot carry oxygen, so it directly caps functional recovery.
+    F_rec *= (1 - metHb)
     live = clamp(S_imm * (1 - apop - necr), 0, 1)
     apop_f = clamp(S_imm * apop + (1 - S_imm) * 0.35, 0, 1)
     necr_f = clamp(1 - live - apop_f, 0, 1)
@@ -1054,7 +1143,7 @@ def simulate(P: Params):
     res = dict(S_imm=S_imm, S_24=S_24, S_72=S_72, F_rec=F_rec,
                rosPeak=ros_peak, D_delayed=D_delayed,
                D_osm=D_osm, D_tox=D_tox, D_mem=D_mem, D_iif=D_iif, D_apop=D_apop,
-               D_mech=D_mech, D_energy=D_energy, D_shrink=D_shrink,
+               D_mech=D_mech, D_energy=D_energy, D_shrink=D_shrink, D_desicc=D_desicc, metHb=metHb,
                D_swell=clamp(D_swell, 0, 1), D_sol=clamp(D_sol, 0, 1),
                D_recry_ice=clamp(D_recry_ice, 0, 1),
                P_iif=P_iif, iifAmount=iif_amount, supercoolPeak=supercool_peak,
