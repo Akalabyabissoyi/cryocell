@@ -726,6 +726,144 @@ class StressView(QWidget):
                    f"CC BY-SA, per-gene main location, retrieved {HPA_RETRIEVED}).")
 
 
+class CompartmentAtlas(QWidget):
+    """HPA-style isolate view: each subcellular compartment shown on its own in a
+    fluorescence-micrograph style (target in green, nucleus in blue as a DAPI
+    reference), like the Human Protein Atlas Cell Atlas gallery. A reference view
+    of the compartments the model resolves, with their HPA gene counts."""
+    # (key, style) in a sensible reading order; matches the drawn compartments
+    ATLAS = [
+        ("plasma_mem", "ring"), ("nucleoplasm", "nucfill"), ("nucleoli", "nucspots"),
+        ("nuclear_mem", "nucring"), ("mitochondria", "tubules"), ("er", "network"),
+        ("golgi", "ribbon"), ("microtubules", "radial"), ("actin", "cortex"),
+        ("interm_fil", "wavy"), ("centrosome", "dot"), ("focal_adh", "edge"),
+        ("lysosomes", "puncta"), ("peroxisomes", "puncta_s"), ("endosomes", "puncta"),
+        ("vesicles", "puncta_m"), ("lipid_drop", "droplets"), ("cytosol", "diffuse"),
+    ]
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumWidth(360); self.setAutoFillBackground(True)
+
+    def paintEvent(self, _):
+        q = QPainter(self); q.setRenderHint(QPainter.RenderHint.Antialiasing)
+        q.fillRect(self.rect(), QColor(C["surface0"]))
+        w = self.width()
+        q.setPen(QColor(C["text"])); q.setFont(QFont("", 12, QFont.Weight.Bold))
+        q.drawText(QRectF(14, 8, w - 28, 22), Qt.AlignmentFlag.AlignLeft, "Compartment atlas")
+        q.setPen(QColor(C["muted"])); q.setFont(QFont("", 8))
+        q.drawText(QRectF(14, 30, w - 28, 14), Qt.AlignmentFlag.AlignLeft,
+                   "each compartment isolated · HPA immunofluorescence style · gene counts from HPA")
+        cols = max(2, int(w // 190)); tw = (w - 20) / cols; th = tw * 0.82 + 34
+        top = 50
+        for i, (key, style) in enumerate(self.ATLAS):
+            cx = 10 + (i % cols) * tw; cy = top + (i // cols) * th
+            self._tile(q, cx, cy, tw - 8, th - 10, key, style)
+        rows = (len(self.ATLAS) + cols - 1) // cols
+        self.setMinimumHeight(int(top + rows * th + 12))
+
+    def _tile(self, q, x, y, w, h, key, style):
+        img_h = h - 26
+        BG = QColor(8, 12, 18); NUC = QColor(74, 120, 226); GRN = QColor(72, 224, 132)
+        REF = QColor(150, 160, 172, 70)
+        q.setBrush(BG); q.setPen(QPen(QColor(C["border"]), 1)); q.drawRoundedRect(QRectF(x, y, w, img_h), 6, 6)
+        q.save(); q.setClipRect(QRectF(x, y, w, img_h))
+        cx, cy = x + w / 2, y + img_h / 2; R = min(w, img_h) * 0.40
+        rs = np.random.RandomState(hash(key) & 0xffff)
+        nuc_target = style in ("nucfill", "nucspots", "nucring")
+        # membrane reference
+        q.setPen(QPen(REF, 1.4)); q.setBrush(Qt.BrushStyle.NoBrush)
+        q.drawEllipse(QPointF(cx, cy), R, R)
+        # nucleus (blue DAPI reference), unless the nucleus IS the target
+        if not nuc_target:
+            q.setBrush(QColor(NUC.red(), NUC.green(), NUC.blue(), 90)); q.setPen(Qt.PenStyle.NoPen)
+            q.drawEllipse(QPointF(cx, cy), R * 0.42, R * 0.42)
+        def pts(n, rmax, rmin=0.0):
+            for _ in range(n):
+                a = rs.uniform(0, 2 * math.pi); rr = R * (rmin + (rmax - rmin) * math.sqrt(rs.uniform(0, 1)))
+                yield cx + math.cos(a) * rr, cy + math.sin(a) * rr
+        q.setPen(Qt.PenStyle.NoPen); q.setBrush(GRN)
+        if style == "ring":
+            q.setBrush(Qt.BrushStyle.NoBrush); q.setPen(QPen(GRN, 3)); q.drawEllipse(QPointF(cx, cy), R, R)
+        elif style == "nucfill":
+            q.setBrush(GRN); q.drawEllipse(QPointF(cx, cy), R * 0.5, R * 0.5)
+        elif style == "nucspots":
+            q.setBrush(QColor(NUC.red(), NUC.green(), NUC.blue(), 80)); q.drawEllipse(QPointF(cx, cy), R * 0.5, R * 0.5)
+            q.setBrush(GRN)
+            for px, py in pts(3, 0.32): q.drawEllipse(QPointF(px, py), R * 0.10, R * 0.10)
+        elif style == "nucring":
+            q.setBrush(QColor(NUC.red(), NUC.green(), NUC.blue(), 70)); q.drawEllipse(QPointF(cx, cy), R * 0.5, R * 0.5)
+            q.setBrush(Qt.BrushStyle.NoBrush); q.setPen(QPen(GRN, 2.6)); q.drawEllipse(QPointF(cx, cy), R * 0.5, R * 0.5)
+        elif style == "tubules":
+            for px, py in pts(9, 0.9, 0.5):
+                q.save(); q.translate(px, py); q.rotate(rs.uniform(0, 180))
+                q.setBrush(GRN); q.drawEllipse(QPointF(0, 0), R * 0.16, R * 0.05); q.restore()
+        elif style == "network":
+            q.setPen(QPen(GRN, 1.6)); q.setBrush(Qt.BrushStyle.NoBrush)
+            for k in range(5):
+                p = QPainterPath()
+                for s in range(20):
+                    th_ = k * 0.7 + s * 0.09; rr = R * (0.5 + 0.28 * math.sin(s * 0.8 + k))
+                    pt = QPointF(cx + math.cos(th_) * rr, cy + math.sin(th_) * rr)
+                    p.moveTo(pt) if s == 0 else p.lineTo(pt)
+                q.drawPath(p)
+        elif style == "ribbon":
+            gx, gy = cx + R * 0.5, cy - R * 0.15
+            q.setPen(QPen(GRN, 2)); q.setBrush(Qt.BrushStyle.NoBrush)
+            for k in range(4):
+                p = QPainterPath(QPointF(gx - R * 0.28, gy + k * 4 - 6))
+                p.quadTo(QPointF(gx, gy + k * 4 - 14), QPointF(gx + R * 0.28, gy + k * 4 - 6)); q.drawPath(p)
+        elif style == "radial":
+            q.setPen(QPen(GRN, 1.5))
+            for k in range(14):
+                a = k / 14 * 2 * math.pi
+                q.drawLine(QPointF(cx + math.cos(a) * R * 0.18, cy + math.sin(a) * R * 0.18),
+                           QPointF(cx + math.cos(a) * R * 0.95, cy + math.sin(a) * R * 0.95))
+        elif style == "cortex":
+            q.setPen(QPen(GRN, 3)); q.setBrush(Qt.BrushStyle.NoBrush); q.drawEllipse(QPointF(cx, cy), R * 0.92, R * 0.92)
+            q.setPen(QPen(GRN, 1.4))
+            for k in range(5):
+                a = rs.uniform(0, 2 * math.pi)
+                q.drawLine(QPointF(cx + math.cos(a) * R * 0.3, cy + math.sin(a) * R * 0.3),
+                           QPointF(cx + math.cos(a + 0.4) * R * 0.85, cy + math.sin(a + 0.4) * R * 0.85))
+        elif style == "wavy":
+            q.setPen(QPen(GRN, 1.5)); q.setBrush(Qt.BrushStyle.NoBrush)
+            for k in range(6):
+                a0 = k * 1.0; p = QPainterPath(QPointF(cx + math.cos(a0) * R * 0.9, cy + math.sin(a0) * R * 0.9))
+                for s in range(1, 12):
+                    t = s / 11; rr = R * (0.9 - 0.8 * t); aa = a0 + math.sin(t * 6) * 0.4
+                    p.lineTo(QPointF(cx + math.cos(aa) * rr, cy + math.sin(aa) * rr))
+                q.drawPath(p)
+        elif style == "dot":
+            q.setBrush(GRN); q.drawEllipse(QPointF(cx + R * 0.25, cy - R * 0.2), R * 0.12, R * 0.12)
+        elif style == "edge":
+            q.setBrush(GRN)
+            for k in range(6):
+                a = math.pi * (0.25 + k / 5 * 0.5)
+                q.drawEllipse(QPointF(cx + math.cos(a) * R * 0.95, cy + math.sin(a) * R * 0.95), R * 0.08, R * 0.05)
+        elif style in ("puncta", "puncta_s", "puncta_m", "droplets"):
+            n = {"puncta": 12, "puncta_s": 16, "puncta_m": 22, "droplets": 7}[style]
+            sz = {"puncta": 0.09, "puncta_s": 0.06, "puncta_m": 0.07, "droplets": 0.12}[style]
+            for px, py in pts(n, 0.9, 0.45):
+                if style == "droplets":
+                    q.setBrush(QColor(230, 200, 90)); q.setPen(QPen(GRN, 1.4))
+                else:
+                    q.setBrush(GRN); q.setPen(Qt.PenStyle.NoPen)
+                q.drawEllipse(QPointF(px, py), R * sz, R * sz)
+        elif style == "diffuse":
+            q.setBrush(QColor(GRN.red(), GRN.green(), GRN.blue(), 70)); q.setPen(Qt.PenStyle.NoPen)
+            q.drawEllipse(QPointF(cx, cy), R * 0.95, R * 0.95)
+            q.setBrush(BG); q.drawEllipse(QPointF(cx, cy), R * 0.42, R * 0.42)
+        q.restore()
+        # label
+        hp = HPA.get(key)
+        nm = hp[0] if hp else key
+        genes = f"{hp[1]:,} genes · {hp[2]}%" if hp and hp[1] is not None else ""
+        q.setPen(QColor(C["text"])); q.setFont(QFont("", 8, QFont.Weight.Bold))
+        q.drawText(QRectF(x, y + img_h + 1, w, 12), Qt.AlignmentFlag.AlignHCenter, nm)
+        q.setPen(QColor(C["muted"])); q.setFont(QFont("", 7))
+        q.drawText(QRectF(x, y + img_h + 13, w, 11), Qt.AlignmentFlag.AlignHCenter, genes)
+
+
 class Main(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -993,6 +1131,10 @@ class Main(QMainWindow):
         self.stress = StressView()
         strsc = QScrollArea(); strsc.setWidget(self.stress); strsc.setWidgetResizable(True)
         tabs.addTab(strsc, "Stress pathways")
+
+        # --- HPA-style compartment atlas (each compartment isolated)
+        atsc = QScrollArea(); atsc.setWidget(CompartmentAtlas()); atsc.setWidgetResizable(True)
+        tabs.addTab(atsc, "Atlas")
 
         # --- analysis
         aw = QWidget(); av = QVBoxLayout(aw)
