@@ -30,9 +30,12 @@ R_ISO_REF = (3 * 1800.0 / (4 * math.pi)) ** (1 / 3)
 # Characteristic organelle dimensions in MICRONS (mid-range of published
 # mammalian values), so every organelle is drawn at its true physical size
 # relative to the whole cell via the fixed px/um scale — a mitochondrion is
-# ~2 um long in a ~15 um cell, not an eyeballed pixel blob. Mitochondrion is
-# (half-length, half-width). Refs: Cell Biology by the Numbers (Milo & Phillips).
-MITO_UM = (1.05, 0.30)          # ~2.1 x 0.6 um tubular mitochondrion
+# ~1.5 um long in a ~15 um cell, not an eyeballed pixel blob. Mitochondrion is
+# (half-length, half-width). In cultured mesenchymal / most somatic cells the
+# network is largely punctate-to-short-tubular, ~1-1.5 um long x ~0.4 um wide,
+# smaller than the classic 2 um textbook figure. Refs: Cell Biology by the
+# Numbers (Milo & Phillips); typical mito diameter 0.25-0.5 um radius.
+MITO_UM = (0.72, 0.21)          # ~1.4 x 0.4 um punctate/short-tubular mitochondrion
 ORG_UM = {"lysosomes": 0.25,    # ~0.5 um diameter
           "peroxisomes": 0.19,  # ~0.4 um
           "endosomes": 0.22,    # ~0.45 um

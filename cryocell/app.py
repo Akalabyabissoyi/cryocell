@@ -3,7 +3,8 @@ from __future__ import annotations
 import sys, math, traceback, os, shutil, subprocess
 import numpy as np
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPointF, QRectF
-from PyQt6.QtGui import QFont, QColor, QAction, QImage, QPainter, QPen, QPainterPath, QPolygonF
+from PyQt6.QtGui import (QFont, QColor, QAction, QImage, QPainter, QPen, QPainterPath,
+    QPolygonF, QRadialGradient, QLinearGradient)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QGridLayout, QLabel, QSlider, QComboBox, QPushButton, QGroupBox,
     QScrollArea, QCheckBox, QTabWidget, QTextEdit, QSplitter, QSizePolicy,
@@ -105,6 +106,16 @@ PRESETS = {
                                          apop_resist=1.0, anoikis_resist=1.0, glycolytic=1.0, antioxidant=0.4,
                                          freeze_dry=True, cpa_key="glycerol", conc_pct=15,
                                          additive="tre", add_conc=6, dry_residual=0.05),
+    # 3D spheroid / organoid construct (Gao, Bissoyi, Guo & Gibson 2024, ACS
+    # Biomater Sci Eng 11:208, doi:10.1021/acsbiomaterials.4c00958). 10% DMSO
+    # alone supercools (~-16 C), which sheds surface cells and perforates the
+    # interior; open the "3D spheroid" tab, tick the extracellular ice nucleator
+    # (IN+) and change the diameter to see the protection and the size effect.
+    # Cells are junction-coupled (adhesion = spheroid): Irimia & Karlsson 2002.
+    "Construct — 3D spheroid (Bissoyi 2024)": dict(Viso=1800, cyto=1.35, sterol=25,
+                                         adhesion="spheroid", cpa_key="dmso", conc_pct=10,
+                                         apop_resist=0.0, anoikis_resist=0.0,
+                                         glycolytic=0.0, antioxidant=0.0),
 }
 
 # (attr, label, min, max, step, decimals, log)
@@ -864,6 +875,368 @@ class CompartmentAtlas(QWidget):
         q.drawText(QRectF(x, y + img_h + 13, w, 11), Qt.AlignmentFlag.AlignHCenter, genes)
 
 
+# ---------------------------------------------------------------------------
+# 3D spheroid / multicellular-construct cryopreservation view.
+#
+# The core single-cell model is run once; this view overlays the physics that
+# make a 3D construct behave differently from a cell in suspension, resolved
+# ACROSS THE RADIUS of the spheroid:
+#   1. CPA loading is diffusion-limited -> the core stays under-protected in a
+#      fixed loading hold, and the bigger the spheroid the worse it gets
+#      (penetration depth delta ~ sqrt(D_eff * t_hold)).
+#   2. Intracellular ice, once nucleated, propagates cell-to-cell through gap
+#      junctions -> a single event sweeps the coupled cluster (Irimia & Karlsson
+#      2002; Acker & McGann 2000). The model's junction-coupled P_iif drives the
+#      invasion front here.
+#   3. Large spheroids carry a pre-existing hypoxic / necrotic core before any
+#      freezing (a standard 3D-culture feature, not a cryo effect) -> flagged
+#      separately so it is not confused with freezing damage.
+#
+# This is an illustrative radial overlay on the single-cell solve, not a full 3D
+# reaction-diffusion solve. The diffusion coefficient is an order-of-magnitude
+# tissue value and is labelled as such. Each drawn circle is a representative
+# cell for its shell, not a literal count.
+_D_EFF_CPA = 3.0e-11        # effective CPA diffusivity in packed tissue, m^2/s
+                            # (tortuous; ~10x lower than free solution). Order of
+                            # magnitude only -- Xu 2014; Devireddy tissue reviews.
+# Measured spheroid nucleation temperatures, Gao, Bissoyi, Guo & Gibson 2024
+# (ACS Biomater Sci Eng 11:208, doi:10.1021/acsbiomaterials.4c00958):
+TN_INP = -9.25              # 10% DMSO + extracellular ice nucleator (IN+)
+TN_DMSO = -15.77            # 10% DMSO alone (supercools before nucleating)
+
+def _hex_axial(rings):
+    """Axial (q, r) coords for a hex-packed disk of `rings` rings around 0,0."""
+    cells = [(0, 0)]
+    dirs = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+    for rad in range(1, rings + 1):
+        q, r = -rad, rad                    # start corner
+        for i in range(6):
+            for _ in range(rad):
+                cells.append((q, r))
+                q += dirs[i][0]; r += dirs[i][1]
+    return cells
+
+_HEX_NEI = [(1, 0), (1, -1), (0, -1), (-1, 0), (-1, 1), (0, 1)]
+
+
+class _SpheroidCanvas(QWidget):
+    """Custom-painted radial cross-section of a cryopreserved spheroid."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.frame = None
+        self.diam_um = 300.0
+        self.in_plus = False                                     # extracellular ice nucleator?
+        self.setMinimumSize(420, 460)
+        self.setAutoFillBackground(True)
+        self._layout_cache = {}
+
+    def set_frame(self, f):
+        self.frame = f; self.update()
+
+    def set_diam(self, d):
+        self.diam_um = float(d); self.update()
+
+    def set_in_plus(self, on):
+        self.in_plus = bool(on); self.update()
+
+    # ---- physics helpers ---------------------------------------------------
+    def _penetration_um(self, f):
+        """CPA penetration depth from the surface, microns.
+
+        Equilibration is set during the warm loading hold: diffusion is
+        Arrhenius-slow once cooling starts and stops when the construct freezes,
+        so whatever the core failed to take up during the hold stays missing
+        into the freeze. During the hold itself the front is still advancing, so
+        it grows with elapsed time up to the full hold; after that it is fixed.
+        """
+        t_hold = max(f.get("hold_min", 10.0), 0.1) * 60.0        # s
+        if f.get("phase") == "load":
+            t_eff = clamp(f.get("t", t_hold), 0.0, t_hold)       # still loading
+        else:
+            t_eff = t_hold                                       # frozen at hold value
+        return math.sqrt(_D_EFF_CPA * t_eff) * 1e6              # m -> um
+
+    def _cpa_frac(self, u, f):
+        """Local CPA fraction (0..1) at fractional radius u (0 core .. 1 rim)."""
+        loaded = clamp(f.get("cpaLoad", 0.0) / 0.6, 0.0, 1.0)    # any CPA on board?
+        if loaded <= 0.01:
+            return 0.0
+        R = self.diam_um / 2.0
+        depth = R * (1.0 - u)                                    # um from surface
+        delta = self._penetration_um(f)
+        if depth <= delta:
+            local = 1.0
+        else:
+            local = math.exp(-(depth - delta) / max(0.6 * delta, 1e-6))
+        return clamp(loaded * local, 0.0, 1.0)
+
+    def _necrotic(self, u, f):
+        """Pre-existing hypoxic/necrotic core fraction (0..1), size-dependent.
+        A standard 3D-culture feature (before any freezing), so it is shown
+        separately from cryo-damage. Onset in large spheroids only."""
+        big = clamp((self.diam_um - 350.0) / 250.0, 0.0, 1.0)    # onset well above 200 um
+        core = clamp((0.30 - u) / 0.30, 0.0, 1.0)
+        return big * core
+
+    def _nucleation_T(self):
+        """Effective nucleation temperature, degC. Measured values from Gao,
+        Bissoyi, Guo & Gibson 2024 (ACS Biomater Sci Eng 11:208): 10% DMSO alone
+        supercools and nucleates at -15.77 degC; adding an extracellular ice
+        nucleator (IN+) raises it to -9.25 degC."""
+        return TN_INP if self.in_plus else TN_DMSO
+
+    def _supercool_sev(self):
+        """Supercooling severity 0..1. IN+ (-9.25 C) ~ 0; DMSO-only (-15.77 C) ~ 1.
+        Deeper supercooling before nucleation is the dominant damage driver for
+        spheroids (delayed nucleation -> longer CPA exposure, less dehydration,
+        violent freezing) -- Gao/Bissoyi 2024; Gao/Bissoyi 2023 Chem Commun."""
+        Tn = self._nucleation_T()
+        return clamp((-Tn - (-TN_INP)) / ((-TN_DMSO) - (-TN_INP)), 0.0, 1.0)
+
+    def _sizefac(self):
+        """Size penalty. 200 um spheroids recover best; 400 um markedly worse
+        (Gao/Bissoyi 2024, measured WST-1 recovery)."""
+        return clamp((self.diam_um - 180.0) / 220.0, 0.0, 1.0)
+
+    def _shed(self, u, f):
+        """Surface-shedding damage at shell u. Without induced nucleation the
+        outermost cells detach from the spheroid -- the paper's key finding, and
+        the same detachment seen in supercooled 2D monolayers. Confined to the
+        outer ~two shells; scales with supercooling and (weakly) size."""
+        ss = self._supercool_sev()
+        rim = clamp((u - 0.72) / 0.28, 0.0, 1.0)                 # outer shells only
+        return clamp(ss * rim * (0.7 + 0.3 * self._sizefac()), 0.0, 1.0)
+
+    def _perforate(self, u, f):
+        """Interior perforation at shell u. Without induced nucleation the core
+        shows voids/perforation (Gao/Bissoyi 2024) -- pronounced in large
+        spheroids, minimal in small ones. Confined to the inner shells."""
+        ss = self._supercool_sev()
+        core = clamp((0.62 - u) / 0.62, 0.0, 1.0)               # inner shells
+        return clamp(ss * core * (0.35 + 0.65 * self._sizefac()), 0.0, 1.0)
+
+    def _dead(self, u, f):
+        """Post-thaw lethality at shell u: shed rim OR perforated interior."""
+        return clamp(max(self._shed(u, f), self._perforate(u, f)), 0.0, 1.0)
+
+    # ---- painting ----------------------------------------------------------
+    def paintEvent(self, _):
+        q = QPainter(self); q.setRenderHint(QPainter.RenderHint.Antialiasing)
+        q.fillRect(self.rect(), QColor(9, 12, 17))
+        w, h = self.width(), self.height()
+        f = self.frame
+        if not f:
+            q.setPen(QColor(150, 160, 172)); q.setFont(QFont("", 10))
+            q.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "run a protocol to view the spheroid")
+            return
+
+        rings = 4
+        cells = self._layout_cache.get(rings)
+        if cells is None:
+            cells = _hex_axial(rings); self._layout_cache[rings] = cells
+        cellset = set(cells)
+        post_thaw = f.get("phase") in ("melt", "dilute", "recover", "end") and f.get("T", 20) > 0.5
+        # pixel geometry — keep the cluster in the left ~58% so the readout column
+        # on the right never overlaps the cells. A flat-top hex disk of `rings`
+        # rings spans ~2*sqrt(3)*rings*size, so normalise `size` by that.
+        cx, cy = w * 0.31, h * 0.50
+        Rpix = min(w * 0.28, h * 0.42)
+        size = Rpix / (math.sqrt(3) * rings + 0.8)              # hex spacing (fits Rpix)
+        crad = size * 0.92
+        def px(qc, rc):
+            x = cx + size * 1.5 * qc
+            y = cy + size * math.sqrt(3) * (rc + qc / 2.0)
+            return x, y
+        def udist(qc, rc):                                       # cube distance / rings
+            xx, zz = qc, rc; yy = -xx - zz
+            return (abs(xx) + abs(yy) + abs(zz)) / 2.0 / rings
+
+        # protocol state: is ice present yet, and (if supercooling) has the medium
+        # reached its nucleation temperature?
+        T = f.get("T", 20.0); phase = f.get("phase", "")
+        Tn = self._nucleation_T()
+        cold = T < -0.5
+        nucleated = cold and (T <= Tn + 0.5 or phase in ("seed", "store", "warm", "melt"))
+        supercooled = cold and not nucleated                     # below 0, not yet frozen
+        post_thaw = phase in ("melt", "dilute", "recover", "end") and T > 0.5
+        damaged = nucleated or post_thaw
+
+        # junction lines first (behind cells)
+        q.setPen(QPen(QColor(120, 130, 145, 90), 1.2))
+        for (qc, rc) in cells:
+            x0, y0 = px(qc, rc)
+            for dq, dr in _HEX_NEI:
+                nb = (qc + dq, rc + dr)
+                if nb in cellset and (nb > (qc, rc)):
+                    x1, y1 = px(*nb); q.drawLine(QPointF(x0, y0), QPointF(x1, y1))
+
+        R = self.diam_um / 2.0
+        # per-cell draw
+        alive_n = under_n = shed_n = perf_n = necr_n = 0
+        for (qc, rc) in cells:
+            x, y = px(qc, rc); u = udist(qc, rc)
+            cpa = self._cpa_frac(u, f); nec = self._necrotic(u, f)
+            shed = self._shed(u, f); perf = self._perforate(u, f)
+            g = QRadialGradient(QPointF(x - crad * 0.3, y - crad * 0.3), crad * 1.4)
+            has_nuc = True; dx = dy = 0.0; alpha = 255
+            if nec > 0.5:                                        # pre-existing hypoxic core
+                g.setColorAt(0, QColor(90, 74, 60)); g.setColorAt(1, QColor(54, 44, 36))
+                ring_c = QColor(120, 96, 70); has_nuc = False; necr_n += 1
+            elif damaged and shed > 0.5:                         # surface cell shed / detached
+                g.setColorAt(0, QColor(180, 80, 80)); g.setColorAt(1, QColor(110, 40, 40))
+                ring_c = QColor(200, 100, 100); has_nuc = False; shed_n += 1
+                ang = math.atan2(y - cy, x - cx); off = crad * (0.25 + 0.45 * shed)
+                dx, dy = math.cos(ang) * off, math.sin(ang) * off  # detaching outward
+                alpha = 150
+            elif damaged and perf > 0.5:                         # interior perforation / void
+                g.setColorAt(0, QColor(70, 40, 44)); g.setColorAt(1, QColor(34, 20, 22))
+                ring_c = QColor(120, 70, 74); has_nuc = False; perf_n += 1
+            elif supercooled:                                    # below 0 C, not yet nucleated
+                g.setColorAt(0, QColor(150, 190, 220)); g.setColorAt(1, QColor(80, 120, 160))
+                ring_c = QColor(170, 205, 230)
+            elif nucleated and self.in_plus:                     # gently frozen, protected
+                g.setColorAt(0, QColor(120, 210, 210)); g.setColorAt(1, QColor(60, 150, 160))
+                ring_c = QColor(150, 220, 220); alive_n += 1
+            elif cpa >= 0.66:                                    # alive; hue by CPA protection
+                g.setColorAt(0, QColor(90, 220, 150)); g.setColorAt(1, QColor(40, 150, 110))
+                ring_c = QColor(120, 230, 170); alive_n += 1
+            elif cpa >= 0.33:
+                g.setColorAt(0, QColor(235, 200, 90)); g.setColorAt(1, QColor(180, 140, 50))
+                ring_c = QColor(240, 210, 120); under_n += 1
+            else:
+                g.setColorAt(0, QColor(232, 130, 70)); g.setColorAt(1, QColor(170, 80, 45))
+                ring_c = QColor(240, 150, 100); under_n += 1
+            if alpha < 255:
+                ring_c = QColor(ring_c.red(), ring_c.green(), ring_c.blue(), alpha)
+            q.setOpacity(alpha / 255.0)
+            q.setBrush(g); q.setPen(QPen(ring_c, 1.4))
+            q.drawEllipse(QPointF(x + dx, y + dy), crad, crad)
+            if has_nuc:                                          # nucleus dot for living cells
+                q.setBrush(QColor(60, 90, 170, 150)); q.setPen(Qt.PenStyle.NoPen)
+                q.drawEllipse(QPointF(x + dx, y + dy), crad * 0.34, crad * 0.34)
+            q.setOpacity(1.0)
+
+        # CPA penetration ring marker (how deep the front reached) — during loading
+        delta = self._penetration_um(f)
+        if f.get("cpaLoad", 0.0) > 0.02 and delta < R and not damaged and not supercooled:
+            rr = Rpix * clamp(1.0 - delta / R, 0.0, 1.0)
+            q.setBrush(Qt.BrushStyle.NoBrush)
+            q.setPen(QPen(QColor(90, 220, 150, 150), 1.6, Qt.PenStyle.DashLine))
+            q.drawEllipse(QPointF(cx, cy), rr, rr)
+            q.setPen(QColor(120, 230, 170)); q.setFont(QFont("", 7))
+            q.drawText(QRectF(cx - 60, cy - rr - 13, 120, 12),
+                       Qt.AlignmentFlag.AlignHCenter, "CPA front")
+
+        # supercooling warning banner (the invisible danger)
+        if supercooled and not self.in_plus:
+            q.setPen(QColor(150, 190, 220)); q.setFont(QFont("", 8, QFont.Weight.Bold))
+            q.drawText(QRectF(cx - Rpix, cy - Rpix - 20, 2 * Rpix, 14),
+                       Qt.AlignmentFlag.AlignHCenter,
+                       f"supercooled to {T:.1f} °C — ice not yet nucleated")
+
+        # scale bar (true selected diameter)
+        bar_um = 50.0 if self.diam_um <= 250 else 100.0
+        blen = bar_um * (Rpix / R)
+        bx, by = cx - Rpix, cy + Rpix + 18
+        q.setPen(QPen(QColor(210, 214, 220), 2)); q.drawLine(QPointF(bx, by), QPointF(bx + blen, by))
+        q.setFont(QFont("", 8)); q.setPen(QColor(210, 214, 220))
+        q.drawText(QRectF(bx, by + 3, blen + 60, 14), Qt.AlignmentFlag.AlignLeft, f"{bar_um:.0f} µm")
+
+        self._draw_readout(q, w, h, f, Tn, alive_n, shed_n, perf_n, necr_n, len(cells))
+
+    def _draw_readout(self, q, w, h, f, Tn, alive, shed, perf, necr, total):
+        x0 = min(w * 0.60, w - 220.0)
+        y = 14
+        def line(txt, col=QColor(210, 214, 220), sz=8, bold=False, dy=13):
+            nonlocal y
+            q.setPen(col); q.setFont(QFont("", sz, QFont.Weight.Bold if bold else QFont.Weight.Normal))
+            q.drawText(QRectF(x0, y, w - x0 - 6, 16), Qt.AlignmentFlag.AlignLeft, txt)
+            y += dy
+        line(f"Spheroid {self.diam_um:.0f} µm", QColor(240, 240, 240), 10, True, 17)
+        line(f"{f.get('phase','')} · {f.get('T',0):.1f} °C", QColor(160, 170, 182), 8, False, 16)
+        # nucleation regime
+        if self.in_plus:
+            line("IN+ ice nucleator", QColor(150, 220, 220), 9, True)
+            line(f"  nucleates at {Tn:.1f} °C", QColor(150, 200, 210))
+        else:
+            line("DMSO only", QColor(235, 170, 120), 9, True)
+            line(f"  supercools to {Tn:.1f} °C", QColor(235, 170, 120))
+        y += 3
+        line(f"Cryo-damage (of {total} cells)", QColor(240, 240, 240), 9, True)
+        line(f"  surface shed: {shed}", QColor(210, 110, 110) if shed else QColor(150, 160, 172))
+        line(f"  interior voids: {perf}", QColor(180, 110, 110) if perf else QColor(150, 160, 172))
+        line(f"  intact: {alive}", QColor(120, 230, 170))
+        if necr:
+            line(f"  hypoxic core: {necr}", QColor(180, 150, 120))
+        y += 3
+        line("Radial CPA load", QColor(240, 240, 240), 9, True)
+        cc, rc = self._cpa_frac(0.0, f), self._cpa_frac(1.0, f)
+        line(f"  core: {cc*100:.0f}%   rim: {rc*100:.0f}%",
+             QColor(120, 230, 170) if cc > 0.6 else QColor(240, 200, 110))
+        y += 5
+        line("Legend", QColor(240, 240, 240), 9, True)
+        for c, t in [(QColor(60, 185, 130), "intact / protected"),
+                     (QColor(235, 200, 90), "under-loaded core"),
+                     (QColor(180, 80, 80), "shed surface cell"),
+                     (QColor(70, 40, 44), "interior void"),
+                     (QColor(150, 190, 220), "supercooled"),
+                     (QColor(90, 74, 60), "hypoxic core")]:
+            q.setBrush(c); q.setPen(Qt.PenStyle.NoPen)
+            q.drawEllipse(QPointF(x0 + 6, y + 5), 5, 5)
+            q.setPen(QColor(200, 205, 212)); q.setFont(QFont("", 8))
+            q.drawText(QRectF(x0 + 16, y, w - x0 - 20, 14), Qt.AlignmentFlag.AlignLeft, t)
+            y += 15
+        y += 3
+        q.setPen(QColor(130, 138, 150)); q.setFont(QFont("", 7))
+        q.drawText(QRectF(x0, y, w - x0 - 4, 120), Qt.TextFlag.TextWordWrap,
+                   "Damage pattern from Gao, Bissoyi, Guo & Gibson 2024 (ACS Biomater "
+                   "Sci Eng 11:208): DMSO-only supercooling shears surface cells and "
+                   "perforates the interior; an extracellular nucleator (IN+) raises the "
+                   "nucleation temperature and protects both. Illustrative radial overlay "
+                   "on the single-cell solve, not a 3D reaction-diffusion solve.")
+
+
+class SpheroidView(QWidget):
+    """3D spheroid cryopreservation view with a live diameter selector and an
+    extracellular-ice-nucleator (IN+) toggle."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        v = QVBoxLayout(self); v.setContentsMargins(8, 8, 8, 8); v.setSpacing(6)
+        head = QHBoxLayout()
+        t = QLabel("3D spheroid cryopreservation"); t.setStyleSheet("font-weight:600;")
+        head.addWidget(t); head.addStretch(1)
+        head.addWidget(QLabel("diameter"))
+        self.diam = QComboBox()
+        for d in (120, 200, 300, 400, 500):
+            self.diam.addItem(f"{d} µm", d)
+        self.diam.setCurrentIndex(3)                            # 400 um (paper's large case)
+        self.diam.currentIndexChanged.connect(self._diam)
+        head.addWidget(self.diam)
+        self.inp = QCheckBox("extracellular ice nucleator (IN+)")
+        self.inp.toggled.connect(self._inp)
+        head.addWidget(self.inp)
+        v.addLayout(head)
+        sub = QLabel("Follows Gao, Bissoyi, Guo & Gibson 2024 (ACS Biomater Sci Eng 11:208): "
+                     "10% DMSO alone supercools to ~-16 °C, shedding surface cells and "
+                     "perforating the interior; an extracellular ice nucleator (IN+) raises "
+                     "nucleation to ~-9 °C and protects the whole spheroid. Smaller spheroids "
+                     "recover better. Toggle IN+ and change the diameter to show it live.")
+        sub.setWordWrap(True); sub.setStyleSheet("color:#8a8873; font-size:11px;")
+        v.addWidget(sub)
+        self.canvas = _SpheroidCanvas()
+        self.canvas.set_diam(self.diam.currentData())
+        v.addWidget(self.canvas, 1)
+
+    def _diam(self, _):
+        self.canvas.set_diam(self.diam.currentData())
+
+    def _inp(self, on):
+        self.canvas.set_in_plus(on)
+
+    def set_frame(self, f):
+        self.canvas.set_frame(f)
+
+
 class Main(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -959,7 +1332,7 @@ class Main(QMainWindow):
         d = Params()
         RESET = ("cell_type", "freeze_dry", "Viso", "lp", "ps", "sterol", "cyto", "nuc_scale",
                  "apop_resist", "anoikis_resist", "antioxidant", "glycolytic",
-                 "dry_residual", "dry_hours", "drystore_days")
+                 "dry_residual", "dry_hours", "drystore_days", "adhesion")
         cur = {k: v for k, v in vars(self.P).items() if k in Params.__annotations__}
         for k in RESET:
             cur[k] = getattr(d, k)
@@ -1136,6 +1509,10 @@ class Main(QMainWindow):
         atsc = QScrollArea(); atsc.setWidget(CompartmentAtlas()); atsc.setWidgetResizable(True)
         tabs.addTab(atsc, "Atlas")
 
+        # --- 3D spheroid / multicellular construct cryopreservation (live)
+        self.spheroid = SpheroidView()
+        tabs.addTab(self.spheroid, "3D spheroid")
+
         # --- analysis
         aw = QWidget(); av = QVBoxLayout(aw)
         row = QHBoxLayout()
@@ -1275,6 +1652,9 @@ class Main(QMainWindow):
                     dTsc=S.dTsc[i], ros=S.ros[i],
                     sterol=self.P.sterol, cpaLoad=self.P.molar(), cyto=self.P.cyto,
                     cell_type=self.P.cell_type,
+                    t=float(self.S.t[i]),
+                    hold_min=float(getattr(self.P, "hold_min", 10.0)),
+                    adhesion=getattr(self.P, "adhesion", "suspension"),
                     r_iso_um=(3 * self.P.Viso / (4 * math.pi)) ** (1 / 3))
 
     def _show(self, i, jumped=False):
@@ -1283,6 +1663,7 @@ class Main(QMainWindow):
         self.mechano.set_frame(f)
         self.molec.set_frame(f)
         self.stress.set_frame(f)
+        self.spheroid.set_frame(f)
         names = dict(dry1="Primary drying", dry2="Secondary drying", drystore="Dry storage",
                      rehydrate="Rehydration",
                      load="CPA loading", cool="Cooling", seed="Seeding", store="Storage",

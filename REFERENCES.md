@@ -321,3 +321,61 @@ counts are bundled (cryocell/pathways.py: HPA_COMPARTMENTS), not the HPA table.
   compartment) and bundled as pathways.py:GENE_HPA, so a researcher can verify each
   call directly against the HPA API:
   https://www.proteinatlas.org/api/search_download.php?search=GENE&format=json&columns=g,scml
+
+## M. Mitochondrion drawn size
+
+- The drawn mitochondrion was reduced from a 2.1 x 0.6 um tubule to a
+  ~1.4 x 0.4 um punctate/short-tubular body (cellview.py:MITO_UM). In cultured
+  mesenchymal and most somatic cells the network reads as punctate-to-short
+  puncta in fixed immunofluorescence, smaller than the classic 2 um textbook
+  figure (Cell Biology by the Numbers, Milo & Phillips; typical mitochondrial
+  diameter 0.5-1 um). This is a rendering change only; the on-screen scale-bar
+  legend derives from MITO_UM, so it stays consistent, and the benchmark
+  (hMSC + DMSO, 1 C/min = 35.4% S_24) is unchanged.
+
+## N. 3D spheroid cryopreservation view
+
+The "3D spheroid" tab is an illustrative radial overlay on the single-cell
+solve (not a full 3D reaction-diffusion solve) built to teach how a
+multicellular construct behaves differently from a cell in suspension. It
+follows the group's own spheroid-cryopreservation work:
+
+- Gao, Bissoyi, Guo & Gibson, "Induced Extracellular Ice Nucleation Protects
+  Cocultured Spheroid Interior and Exterior during Cryopreservation," ACS
+  Biomater Sci Eng 2024, 11(1):208-212, doi:10.1021/acsbiomaterials.4c00958.
+  Coculture spheroids (GFP-labelled outer A549, A549/HepG2 core) resolved the
+  spatial damage pattern: 10% DMSO alone supercools and nucleates at
+  -15.77 degC, which (a) sheds cells from the spheroid SURFACE (cell
+  detachment is a major stressor, as in supercooled 2D monolayers) and (b)
+  PERFORATES the interior. Adding an extracellular ice nucleator (IN+) raised
+  the nucleation temperature to -9.25 degC and protected both interior and
+  exterior; recovery rose from ~20% to 80-100%. Smaller spheroids (~200 um)
+  recovered better than larger (~400 um).
+- Gao, Bissoyi, Kinney, Whale, Guo & Gibson, "Proline-conditioning and
+  chemically-programmed ice nucleation protects spheroids during
+  cryopreservation," Chem Commun 2023, 59:9086-9089, doi:10.1039/d3cc02252h
+  (supercooling as the damage driver; warm induced nucleation as the fix).
+- Bissoyi, Tomas, Gao, Guo & Gibson, "Cryopreservation of Liver-Cell Spheroids
+  with Macromolecular Cryoprotectants," ACS Appl Mater Interfaces 2023,
+  15(2):2630-2638, doi:10.1021/acsami.2c18288 (reduced actin polymerisation
+  with DMSO-only, linked to intracellular ice; polyampholyte rescue).
+- Irimia & Karlsson 2002; Acker & McGann 2000 — junction-coupled intercellular
+  ice propagation (cells are drawn junction-coupled, adhesion = "spheroid").
+
+What the view computes, and its honest limits:
+- Nucleation regime: the IN+ toggle switches the effective nucleation
+  temperature between the two measured values above (-9.25 vs -15.77 degC);
+  supercooling severity drives the damage.
+- Surface shedding and interior perforation are modelled as separate radial
+  damage fields (outer shells vs inner shells), scaled by supercooling severity
+  and construct diameter (200 um good, 400 um worse), reproducing the paper's
+  spatial pattern.
+- Radial CPA loading gradient: penetration depth delta ~ sqrt(D_eff * t_hold),
+  D_eff ~ 3e-11 m2/s (tortuous-tissue order-of-magnitude value, Xu 2014;
+  Devireddy tissue reviews), so a large core stays CPA-starved in a fixed
+  loading hold.
+- A pre-existing hypoxic/necrotic core (a standard 3D-culture feature, not a
+  cryo effect) is drawn separately for large spheroids so it is not confused
+  with freezing damage.
+- Each drawn circle is a representative cell for its shell, not a literal count.
+  The single-cell benchmark (35.4% S_24) is untouched by this view.
