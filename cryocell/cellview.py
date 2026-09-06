@@ -1058,12 +1058,22 @@ class CellView(QWidget):
         # intracellular ice — angular crystals nucleated through the cytoplasm when
         # the cell is UNPROTECTED (high P_iif). CPA drives P_iif → 0, so this whole
         # field is the visual signature of the "no protection" freezing regime and
-        # vanishes when a cryoprotectant is present.
+        # vanishes when a cryoprotectant is present. While frozen (cool→store→warm)
+        # they read as ice (blue); after melt they persist as the pale unstained
+        # "void / freeze-damage" left behind in fixed, thawed cells (the cytoplasmic
+        # counterpart of the nuclear freeze-substitution look above, and of the
+        # interior perforation seen in thawed spheroids, Gao/Bissoyi 2024).
         if f["Piif"] > 0.05 and "iif" in vis:
             pf = float(np.clip(f["Piif"], 0, 1))
             nX = int(6 + pf * 46)
             rsq = np.random.RandomState(23)
-            q.setPen(QPen(col("ice", int(170 + 80 * pf)), max(1.0, 1.5 * Z)))
+            post_thaw = f.get("phase", "") in ("melt", "dilute", "recover", "end")
+            if post_thaw:
+                void_fill = QColor(250, 246, 248); void_fill.setAlpha(int(70 + 110 * pf))
+                void_edge = QColor(150, 152, 160, int(150 + 90 * pf))
+                q.setPen(QPen(void_edge, max(1.0, 1.5 * Z)))
+            else:
+                q.setPen(QPen(col("ice", int(170 + 80 * pf)), max(1.0, 1.5 * Z)))
             for k in range(nX):
                 a = k * 2.39996
                 # surface-catalysed nucleation (Li et al. 2020; Toner 1990): ice
@@ -1073,7 +1083,7 @@ class CellView(QWidget):
                 cx, cy = math.cos(a) * r2, math.sin(a) * r2
                 cr = (2.2 + pf * 6.5) * (0.6 + 0.8 * rsq.rand())
                 m = int(rsq.randint(5, 7))                 # angular ice facets
-                q.setBrush(col("ice", int(55 + 95 * pf)))
+                q.setBrush(void_fill if post_thaw else col("ice", int(55 + 95 * pf)))
                 q.drawPolygon(QPolygonF([self._to_screen(
                     cx + math.cos(t) * cr * (0.7 + 0.5 * rsq.rand()),
                     cy + math.sin(t) * cr * (0.7 + 0.5 * rsq.rand()))
@@ -1285,10 +1295,10 @@ class CellView(QWidget):
 
         # ---- compact legend (bottom-right)
         leg = [("Nucleus", "nucleus"), ("Mitochondria", "mito"), ("ER", "er"),
-               ("CPA", "cpa"), ("Ice", "ice")]
-        q.setFont(QFont("", 8)); lx, ly = w - 96, h - 92
+               ("CPA", "cpa"), ("Ice / freeze-damage voids", "ice")]
+        q.setFont(QFont("", 8)); lx, ly = w - 186, h - 92
         q.setBrush(col("surface1", 220)); q.setPen(QPen(col("border"), 1))
-        q.drawRoundedRect(QRectF(lx - 8, ly - 12, 96, len(leg) * 15 + 10), 5, 5)
+        q.drawRoundedRect(QRectF(lx - 8, ly - 12, 186, len(leg) * 15 + 10), 5, 5)
         for i, (nm, ck) in enumerate(leg):
             yy = ly + i * 15
             q.setBrush(col(ck)); q.setPen(Qt.PenStyle.NoPen)
