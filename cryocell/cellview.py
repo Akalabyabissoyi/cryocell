@@ -538,6 +538,15 @@ class CellView(QWidget):
         self._draw_extracellular_cpa(q, f)
 
         # ---- cell body
+        # Avian erythrocytes are ELLIPSOIDAL (an oval cell with an oval nucleus),
+        # unlike the round mammalian RBC. Draw the whole cell body through an
+        # anisotropic scale about the cell centre (rendering only ~2:1 long axis;
+        # area preserved) so the membrane, nucleus and organelles all read oval.
+        avian = f.get("cell_type") == "avian_rbc"
+        q.save()
+        if avian:
+            _c0 = S(0.0, 0.0)
+            q.translate(_c0.x(), _c0.y()); q.scale(1.42, 0.70); q.translate(-_c0.x(), -_c0.y())
         path = self._path(self.sb.p)
         rmean = math.sqrt(self.sb.area() / math.pi)
         fluor = self.render_mode == "fluor"
@@ -571,6 +580,7 @@ class CellView(QWidget):
         self._draw_stress_glow(q, f, rmean)
         self._draw_ice_penetration(q, f, rmean)
         self._draw_water_flux(q, f, rmean)
+        q.restore()                                    # end avian elliptical transform
         self._draw_overlay(q, f, px_um, rmean)
         q.end()
 

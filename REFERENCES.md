@@ -287,7 +287,10 @@ flagged, never faked.
   apoptosis is possible (apop_resist = 0), and the nucleus/DNA/cold stress
   pathways apply (ER-stress does not; it has minimal ER). Being non-adherent
   (spectrin membrane skeleton, no focal adhesions) the FA-LINC panel is flagged
-  "not applicable". Literature-prior parameters, not calibrated.
+  "not applicable". The avian RBC is drawn ELLIPSOIDAL (an oval cell with an oval
+  nucleus, ~2:1 long axis, area preserved), matching real avian erythrocyte
+  morphology, versus the round mammalian RBC (rendering only). Literature-prior
+  parameters, not calibrated.
 - Fix: the anucleate mammalian RBC (and platelet) no longer draw the "Nucleus"
   / "Mitochondria" / "Cytoskeleton" leader-labels in the cell view; those are
   now gated by cell type, matching the drawn morphology.
