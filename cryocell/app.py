@@ -79,6 +79,18 @@ PRESETS = {
                                          sterol=40, cyto=0.55, nuc_scale=0.4, adhesion="suspension",
                                          cpa_key="glycerol", conc_pct=20, T_add=22, dilution="step",
                                          apop_resist=1.0, anoikis_resist=1.0, glycolytic=1.0, antioxidant=0.4),
+    # Avian red blood cell — UNLIKE the mammalian RBC it is NUCLEATED, retains
+    # mitochondria and does limited protein synthesis, and is larger. Bissoyi,
+    # Oral, Choudhary & Gibson 2025 (ACS Polym Au 6:366, doi:10.1021/acspolymersau.5c00151):
+    # 10% DMSO + 60 mg/mL polyampholyte (~6% w/v, COOH-PLL here) gives ~90%
+    # recovery, outperforming glycerol, with reduced apoptosis and recovered actin
+    # polymerisation post-thaw. Nucleated -> apoptosis IS possible (apop_resist 0).
+    # Literature-prior parameters, not calibrated.
+    "Cell — Avian red blood cell (Bissoyi 2025)": dict(cell_type="avian_rbc", Viso=140, lp=1.2,
+                                         ps=0.05, sterol=35, cyto=0.60, nuc_scale=0.55,
+                                         adhesion="suspension", cpa_key="dmso", conc_pct=10,
+                                         additive="pll", add_conc=6, T_add=22, dilution="step",
+                                         apop_resist=0.0, anoikis_resist=1.0, glycolytic=0.5, antioxidant=0.4),
     # T-lymphocyte — small round cell with a high nucleus-to-cytoplasm ratio and
     # only a thin cytoplasmic rim. Moderate Lp; a common DMSO cryopreservation
     # target. Literature-prior parameters, not calibrated.
@@ -406,17 +418,28 @@ class MolecularView(QWidget):
         w, h = self.width(), self.height()
         X = lambda fx: fx * w; Y = lambda fy: fy * h
 
-        # The FA-LINC axis is nucleus mechanotransduction; it does not exist in an
-        # anucleate cell (red blood cell, platelet).
-        if f.get("cell_type") in ("rbc", "platelet"):
-            cn = "red blood cell" if f.get("cell_type") == "rbc" else "platelet"
+        # The FA-LINC axis is focal-adhesion-to-nucleus mechanotransduction; it does
+        # not exist in an anucleate cell (RBC, platelet), nor in a non-adherent
+        # nucleated cell that has no focal adhesions (avian RBC).
+        _ct = f.get("cell_type")
+        if _ct in ("rbc", "platelet", "avian_rbc"):
+            reason = {
+                "rbc": "A red blood cell is anucleate — no nucleus, nuclear lamina or "
+                       "LINC complex, so there is no focal-adhesion-to-nucleus "
+                       "mechanotransduction axis.",
+                "platelet": "A platelet is anucleate — no nucleus, nuclear lamina or "
+                            "LINC complex, so there is no focal-adhesion-to-nucleus "
+                            "mechanotransduction axis.",
+                "avian_rbc": "An avian red blood cell is nucleated but non-adherent — a "
+                             "spectrin membrane skeleton, no focal adhesions — so there "
+                             "is no focal-adhesion-to-nucleus mechanotransduction axis.",
+            }[_ct]
             q.setPen(QColor(C["text2"])); q.setFont(QFont("", 12, QFont.Weight.Bold))
             q.drawText(QRectF(20, h/2 - 30, w - 40, 24), Qt.AlignmentFlag.AlignHCenter,
                        "Not applicable")
             q.setPen(QColor(C["muted"])); q.setFont(QFont("", 9))
             q.drawText(QRectF(20, h/2 - 2, w - 40, 60), Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap,
-                       f"A {cn} is anucleate — no nucleus, nuclear lamina or LINC complex, "
-                       "so there is no focal-adhesion-to-nucleus mechanotransduction axis.")
+                       reason)
             return
 
         # ---- model state → mechanical drivers along the FA–LINC axis ----

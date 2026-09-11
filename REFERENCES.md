@@ -268,6 +268,22 @@ flagged, never faked.
 - RBC cryopreservation uses **glycerol** (not DMSO); the RBC preset reflects this.
 - Cell types RBC and platelet are anucleate; platelet retains cytoplasmic
   granules. Parameters (size, Lp, cholesterol) are literature priors.
+- **Avian red blood cell** (cell_type = avian_rbc), a new preset from Bissoyi,
+  Oral, Choudhary & Gibson 2025, "Cryopreservation of Avian Erythrocytes Using
+  Macromolecular Cryoprotectants," ACS Polym Au 6(1):366-375,
+  doi:10.1021/acspolymersau.5c00151. UNLIKE the mammalian RBC the avian cell is
+  NUCLEATED, retains mitochondria and does limited protein synthesis, and is
+  larger; it is drawn haemoglobin-red but with a nucleus and organelles. The
+  preset uses 10% DMSO + polyampholyte (COOH-PLL, ~6% w/v = 60 mg/mL in the
+  paper), which the paper reports at ~90% recovery (model gives ~81%),
+  outperforming glycerol, with reduced apoptosis. Because it is nucleated,
+  apoptosis is possible (apop_resist = 0), and the nucleus/DNA/cold stress
+  pathways apply (ER-stress does not; it has minimal ER). Being non-adherent
+  (spectrin membrane skeleton, no focal adhesions) the FA-LINC panel is flagged
+  "not applicable". Literature-prior parameters, not calibrated.
+- Fix: the anucleate mammalian RBC (and platelet) no longer draw the "Nucleus"
+  / "Mitochondria" / "Cytoskeleton" leader-labels in the cell view; those are
+  now gated by cell type, matching the drawn morphology.
 
 ## I. Freeze-drying (lyophilisation) — first version
 

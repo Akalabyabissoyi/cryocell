@@ -152,6 +152,10 @@ STRESS_PATHWAYS = [
 CELL_COMPARTMENTS = {
     "rbc": {"cytosol", "plasma_mem"},
     "platelet": {"cytosol", "plasma_mem", "mitochondria", "vesicles", "actin", "microtubules"},
+    # Avian RBC: nucleated, keeps mitochondria and a cytoskeleton and does limited
+    # protein synthesis, but lacks the full secretory apparatus of a somatic cell.
+    "avian_rbc": {"cytosol", "plasma_mem", "nucleoplasm", "nuclear_mem", "nucleoli",
+                  "mitochondria", "actin", "microtubules"},
 }
 def cell_has_compartment(cell_type, comp):
     s = CELL_COMPARTMENTS.get(cell_type)
@@ -163,6 +167,8 @@ def pathway_applicable(key, cell_type):
         return key in ("oxid", "memb", "ca")
     if cell_type == "platelet":   # anucleate: no nuclear DNA/RNA responses
         return key not in ("cold", "dna")
+    if cell_type == "avian_rbc":  # nucleated + mitochondria: no ER-stress machinery
+        return key != "prot"
     return True
 
 def stress_activity(f):
@@ -354,7 +360,8 @@ class CellView(QWidget):
             self.sb.step(L0, kT_g, kB, 0.60, math.pi * R * R, damp_g, slack,
                          k_cortex=kC_g, pocket_r=pocket, crystals=crystals,
                          noise=noise_g, external=self._ext)
-            nuc_ratio = 0.62 if f.get("cell_type") == "tcell" else 0.40   # T-cells: high N:C ratio
+            _ct = f.get("cell_type")                                       # N:C ratio by cell type
+            nuc_ratio = 0.62 if _ct == "tcell" else 0.55 if _ct == "avian_rbc" else 0.40
             Rn = self.R0 * nuc_ratio * max(f["Vnuc"], 0.1) ** (1 / 3)
             self.nuc.step(2 * math.pi * Rn / self.nuc.n, 0.11, 0.30, 0.42,
                           math.pi * Rn * Rn, 0.88, 0.02, k_cortex=0.09)
@@ -787,15 +794,20 @@ class CellView(QWidget):
         # anucleate and organelle-free, its interior packed with haemoglobin; a
         # T lymphocyte is small with a high nucleus-to-cytoplasm ratio.
         ctype = f.get("cell_type", "msc")
-        has_org = ctype != "rbc"                     # RBC has no organelles; platelet keeps granules
-        has_nucleus = ctype not in ("rbc", "platelet")  # both are anucleate
+        # A mature MAMMALIAN red cell is anucleate and organelle-free. An AVIAN
+        # red cell (Bissoyi et al. 2025, ACS Polym Au 6:366) keeps its nucleus and
+        # mitochondria and performs limited protein synthesis, so it is drawn
+        # haemoglobin-red BUT with a nucleus and organelles layered on top.
+        is_rbc_like = ctype in ("rbc", "avian_rbc")
+        has_org = ctype != "rbc"                     # mammalian RBC: none; platelet/avian: yes
+        has_nucleus = ctype not in ("rbc", "platelet")  # mammalian RBC + platelet anucleate
 
         # ---- cytoplasmic interior ----
         if self.render_mode != "phase":
             St = self._to_screen(0, 0); rpx = rmean * Z
-            if ctype == "rbc":
-                # organelle-free: interior is packed haemoglobin, with the
-                # biconcave-disc central pallor drawn as a lighter core.
+            if is_rbc_like:
+                # interior packed with haemoglobin (red radial fill); an avian
+                # RBC keeps its nucleus + organelles, drawn over this fill below.
                 hb = QColor(196, 60, 52)
                 g = QRadialGradient(St, rpx)
                 g.setColorAt(0.0, QColor(232, 150, 140)); g.setColorAt(0.42, hb)
@@ -1263,25 +1275,33 @@ class CellView(QWidget):
                 q.drawText(QRectF(ox + 4, ty - 9 + i * 13, bw, 12), Qt.AlignmentFlag.AlignLeft, s)
 
         d = 0.7071
+        # cell-type morphology gates: only label structures the cell actually has
+        # (mammalian RBC is anucleate + organelle-free; platelet is anucleate).
+        lc = f.get("cell_type", "msc")
+        lbl_nucleus = lc not in ("rbc", "platelet")
+        lbl_org = lc != "rbc"
         # cell / membrane  (top)
         label(cx, cy - Rs, w * 0.62, 74,
               ["Whole cell", f"{f['Vn']*100:.0f}% Viso · Ø {dia:.1f} µm",
                f"membrane: gel {f['gel']*100:.0f}%"])
-        # nucleus (centre)
-        label(cx, cy, 24, h * 0.40,
-              ["Nucleus", f"{f['Vnuc']*100:.0f}% resting vol"], "nucleus")
+        # nucleus (centre) — only for nucleated cells
+        if lbl_nucleus:
+            label(cx, cy, 24, h * 0.40,
+                  ["Nucleus", f"{f['Vnuc']*100:.0f}% resting vol"], "nucleus")
         # mitochondria — pick a drawn one; report its true physical size
         mpt = next((o for o in self.org if o.kind == "mitochondria"), None)
-        if mpt is not None:
+        if lbl_org and mpt is not None:
             mp = S(mpt.x, mpt.y); ms = f["Vmito"] ** (1 / 3)
             label(mp.x(), mp.y(), w - 4, h * 0.30,
                   ["Mitochondria", f"{2*MITO_UM[0]*ms:.1f} × {2*MITO_UM[1]*ms:.1f} µm",
                    f"ΔΨm {f['dPsi']*100:.0f}% · MPT {f['mpt']*100:.0f}%"], "mito")
         # cytoskeleton — ties the cell view to the FA·LINC mechanics (cold-labile
-        # actin/MT depolymerise; vimentin persists)
-        label(cx - Rs * 0.45, cy - Rs * 0.55, 24, h * 0.22,
-              ["Cytoskeleton", f"actin {f.get('actin',0)*100:.0f}% · MT {f.get('mt',0)*100:.0f}%",
-               f"vimentin {f.get('intf',0)*100:.0f}% (cold-stable)"], "ifil")
+        # actin/MT depolymerise; vimentin persists). Skip for the mammalian RBC,
+        # whose skeleton is a spectrin membrane mesh, not actin/MT/vimentin.
+        if lbl_org:
+            label(cx - Rs * 0.45, cy - Rs * 0.55, 24, h * 0.22,
+                  ["Cytoskeleton", f"actin {f.get('actin',0)*100:.0f}% · MT {f.get('mt',0)*100:.0f}%",
+                   f"vimentin {f.get('intf',0)*100:.0f}% (cold-stable)"], "ifil")
         # cytosol / CPA (interior) — with the transmembrane CPA gradient (in vs out)
         label(cx - Rs * 0.35, cy + Rs * 0.35, 24, h * 0.62,
               ["Cytosol", f"CPA in {f['Cin']:.1f} M · out {f.get('Cout',0):.1f} M",
