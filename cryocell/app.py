@@ -183,6 +183,51 @@ COMBOS = [
                                           ("freeze", "Freezing medium"), ("both", "Both")]),
 ]
 
+# One-line explanation for each control (what it does + an honesty caveat where
+# the value is a teaching/literature prior rather than a measured constant).
+# Shown as muted microcopy under the control, in the spirit of an honest,
+# teaching-first scientific simulator.
+HELP = {
+    # combos
+    "cpa_key":  "The permeating cryoprotectant: sets toxicity, glass-forming ability and permeation speed.",
+    "additive": "A non-permeating co-solute that stays outside the cell (ice-recrystallisation inhibition, membrane stabilisation).",
+    "adhesion": "Cell–cell / matrix state. Junction-coupled states let intracellular ice propagate between cells.",
+    "add_steps":"How the CPA is introduced; more steps reduce osmotic shock during loading.",
+    "dilution": "How the CPA is washed out after thaw. Stepwise sucrose limits osmotic swelling; direct risks lysis.",
+    "rock_drug":"ROCK-pathway inhibitor that blunts cold-induced blebbing and anoikis.",
+    "rock_when":"When the ROCK inhibitor is present in the medium.",
+    # sliders
+    "conc_pct": "Concentration of the penetrating CPA. More protects against ice but raises toxicity and osmotic stress.",
+    "add_conc": "Concentration of the extracellular additive (full membrane coverage near ~6% w/v).",
+    "sterol":   "Membrane cholesterol. Stiffens the bilayer and shifts the gel-phase transition.",
+    "iri":      "Ice-recrystallisation inhibition added on top of the CPA (slows grain growth during warming).",
+    "T_add":    "Temperature at which the CPA is added; warmer speeds permeation but raises toxicity exposure.",
+    "hold_min": "Equilibration time before cooling; longer lets the CPA reach the cell interior.",
+    "T_seed":   "Temperature at which extracellular ice is induced. Warmer seeding = less supercooling = gentler freezing.",
+    "CR":       "Cooling rate. The Mazur two-factor optimum: too fast → intracellular ice; too slow → solution injury.",
+    "T_store":  "Long-term storage temperature (−196 °C = liquid nitrogen).",
+    "days":     "Time held in storage before warming.",
+    "WR":       "Warming rate. Fast warming limits ice recrystallisation on the way out.",
+    "rock_conc":"Dose of the selected ROCK inhibitor.",
+    "zvad":     "Pan-caspase inhibitor (z-VAD-fmk): blocks apoptotic execution. % is an efficacy prior.",
+    "calpain_i":"Calpain protease inhibitor: blunts calcium-driven necrosis. % is an efficacy prior.",
+    "gsmtx":    "GsMTx4 blocks the Piezo1 mechanosensitive channel. % is an efficacy prior.",
+    "T_recover":"Post-thaw culture temperature during the recovery window.",
+    "recover_h":"How long recovery is scored after thaw (delayed-onset death still accrues).",
+    "lp":       "Water permeability of the membrane. Literature-typical prior; higher = faster dehydration.",
+    "ps":       "Solute (CPA) permeability. Literature-typical prior; higher = faster CPA in/out.",
+    "vb":       "Osmotically inactive volume fraction (Boyle–van 't Hoff intercept).",
+    "Viso":     "Isotonic cell volume; sets the surface-to-volume ratio that governs dehydration.",
+    "thalf":    "Half-life of the self-deactivating CPA linker at 37 °C (only for the SD-CPA).",
+    "frag_tox": "Toxicity of SD-CPA breakdown fragments relative to the parent molecule.",
+    "frag_n":   "Number of fragments each SD-CPA molecule breaks into.",
+    "apop_resist":   "Cell-line phenotype: resistance to apoptosis (0 = primary/normal, 1 = transformed).",
+    "anoikis_resist":"Resistance to detachment-induced death (0 = anchorage-dependent).",
+    "antioxidant":   "Capacity to buffer reactive oxygen species during recovery.",
+    "glycolytic":    "Warburg metabolism: how much ATP is made without mitochondria.",
+    "cyto":          "Cytoskeletal density; scales mechanical stiffness and cold-labile depolymerisation.",
+}
+
 
 class Worker(QThread):
     done = pyqtSignal(object)
@@ -1272,6 +1317,7 @@ class Main(QMainWindow):
         self.resize(1680, 1000)
         self.P = Params()
         self.S = self.R = None
+        self.ref = None                 # saved reference run for A/B comparison
         self.idx = 0
         self.playing = False
         self._workers = []
@@ -1308,6 +1354,12 @@ class Main(QMainWindow):
 
         self.widgets = {}
         box = QWidget(); g = QVBoxLayout(box); g.setSpacing(4)
+        def caption(attr):
+            txt = HELP.get(attr)
+            if not txt: return
+            c = QLabel(txt); c.setWordWrap(True)
+            c.setStyleSheet("color:#8a8873; font-size:10px; margin-bottom:4px;")
+            g.addWidget(c)
         for attr, lab, options in COMBOS:
             g.addWidget(QLabel(lab))
             cb = QComboBox()
@@ -1316,6 +1368,7 @@ class Main(QMainWindow):
                                    if getattr(self.P, attr) in [o[0] for o in options] else 0))
             cb.currentIndexChanged.connect(lambda _i, a=attr, c=cb: self._set(a, c.currentData()))
             self.widgets[attr] = cb; g.addWidget(cb)
+            caption(attr)
         for attr, lab, lo, hi, stp, dec, log, unit in SLIDERS:
             row = QHBoxLayout()
             l1 = QLabel(lab); l1.setStyleSheet("color:#52514e")
@@ -1334,6 +1387,7 @@ class Main(QMainWindow):
             self.widgets[attr] = s
             self._slide(attr, lo + s.value() * stp, log, dec, unit, l2, apply=False)
             g.addWidget(s)
+            caption(attr)
         g.addStretch()
         sc = QScrollArea(); sc.setWidget(box); sc.setWidgetResizable(True)
         sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1349,6 +1403,40 @@ class Main(QMainWindow):
     def _set(self, attr, val):
         setattr(self.P, attr, val)
         self.run_timer.start(220)
+
+    # ------------------------------------------------- A/B reference comparison
+    def _save_ref(self):
+        if not self.R: return
+        R = self.R
+        lab = self.preset.currentText()
+        if lab in ("", "Load a preset…"):
+            lab = f"{CPAS[self.P.cpa_key]['name']} {self.P.conc_pct:.0f}%"
+        self.ref = dict(label=lab, S_24=R['S_24'], F_rec=R['F_rec'],
+                        P_iif=R['P_iif'], maxV=R['maxV'])
+        self.refclr.setEnabled(True)
+        self._update_compare()
+
+    def _clear_ref(self):
+        self.ref = None; self.refclr.setEnabled(False); self.cmp.setText("")
+
+    def _update_compare(self):
+        if not self.ref or not self.R:
+            self.cmp.setText(""); return
+        R, ref = self.R, self.ref
+        def chip(cur, base, better_up, unit, mul=1.0, dec=0):
+            cv, bv = cur * mul, base * mul; dv = cv - bv
+            if abs(dv) < 10 ** (-dec) / 2:      col = C['muted']
+            elif (dv > 0) == better_up:         col = C['good']
+            else:                               col = C['crit']
+            sign = '+' if dv >= 0 else '−'
+            return (f"{cv:.{dec}f}{unit} <span style=\"color:{col}\">"
+                    f"(Δ{sign}{abs(dv):.{dec}f}{unit})</span>")
+        self.cmp.setText(
+            f"<b>vs reference</b> · {ref['label']}<br>"
+            f"24 h viable {chip(R['S_24'], ref['S_24'], True, '%', 100, 0)} &nbsp; "
+            f"recovery {chip(R['F_rec'], ref['F_rec'], True, '%', 100, 0)}<br>"
+            f"P(IIF) {chip(R['P_iif'], ref['P_iif'], False, '', 1, 2)} &nbsp; "
+            f"max swell {chip(R['maxV'], ref['maxV'], False, '×', 1, 2)}")
 
     def _preset(self, name):
         p = PRESETS.get(name)
@@ -1458,6 +1546,20 @@ class Main(QMainWindow):
         self.hero2 = QLabel(); self.hero2.setStyleSheet("color:#52514e"); self.hero2.setWordWrap(True)
         v.addWidget(self.hero2)
         self.quad = QLabel(); self.quad.setStyleSheet("font-family:monospace"); v.addWidget(self.quad)
+        # A/B comparison: save the current run as a reference, then see the delta
+        # of every later run against it — the fastest way to show cause and effect.
+        cmp_row = QHBoxLayout()
+        self.refbtn = QPushButton("Save as reference"); self.refbtn.clicked.connect(self._save_ref)
+        self.refbtn.setToolTip("Freeze the current run as a baseline. Later runs show the change "
+                               "in survival, ice risk and swelling against it.")
+        self.refclr = QPushButton("Clear"); self.refclr.clicked.connect(self._clear_ref)
+        self.refclr.setMaximumWidth(60); self.refclr.setEnabled(False)
+        cmp_row.addWidget(self.refbtn); cmp_row.addWidget(self.refclr); cmp_row.addStretch()
+        v.addLayout(cmp_row)
+        self.cmp = QLabel(); self.cmp.setWordWrap(True)
+        self.cmp.setStyleSheet("font-size:11px; color:#52514e;")
+        self.cmp.setTextFormat(Qt.TextFormat.RichText)
+        v.addWidget(self.cmp)
         self.dmg = QTableWidget(0, 2); self.dmg.horizontalHeader().setVisible(False)
         self.dmg.verticalHeader().setVisible(False)
         self.dmg.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
@@ -1624,6 +1726,7 @@ class Main(QMainWindow):
         self.statusBar().showMessage(
             f"{n} frames · peak ROCK {R['rockPeak']:.2f} · grain {R['grainMax']:.0f} µm · "
             f"min channel/cell {R['squeezeMin']:.2f} · ATP min {R['atpMin']:.2f}")
+        self._update_compare()
 
     # ------------------------------------------------------- cryo-signatures
     def _update_signatures(self):

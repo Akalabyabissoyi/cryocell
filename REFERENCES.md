@@ -405,3 +405,21 @@ What the view computes, and its honest limits:
   with freezing damage.
 - Each drawn circle is a representative cell for its shell, not a literal count.
   The single-cell benchmark (35.4% S_24) is untouched by this view.
+
+## O. Scientific-UI upgrades (teaching-first presentation)
+
+Inspired by interactive scientific simulators such as ChatPPG's Plethscape
+(interactive PPG waveform simulator), two presentation features were added.
+Both are UI only; the model and the 35.4% benchmark are untouched.
+
+- **Per-control microcopy.** Every slider and dropdown now carries a one-line
+  explanation of what it does, with an explicit honesty caveat where the value
+  is a teaching/literature prior rather than a measured constant (e.g. Lp/Ps
+  "literature-typical prior", the caspase/calpain/Piezo inhibitor efficacies
+  "an efficacy prior"). This reinforces the never-fabricate principle at the
+  point of interaction (app.py:HELP).
+- **Save-reference / A-B comparison.** The Outcome tab can freeze the current
+  run as a reference; every later run then shows the change against it in 24 h
+  viability, functional recovery, P(IIF) and peak swelling, colour-coded by
+  whether the change helped or hurt. This makes cause and effect explicit for
+  teaching (e.g. add trehalose, or change the cooling rate, and watch the delta).
