@@ -266,6 +266,13 @@ flagged, never faked.
   (sigma, EaPs, Tg', eutectic, water-replacement). These are priors, not
   measurements, and are flagged as such; tune against data before quoting numbers.
 - RBC cryopreservation uses **glycerol** (not DMSO); the RBC preset reflects this.
+- Fix: the mammalian RBC solute permeability was raised (ps 0.05 -> 0.25) to
+  reflect the **AQP3 aquaglyceroporin** that makes human red cells unusually
+  glycerol-permeable (the reason glycerol is their cryoprotectant). With the low
+  value the cell could not shed glycerol fast enough during deglycerolisation
+  and swelled past the lytic limit (maxV ~3.9, 0% recovery); ps 0.25 gives a
+  realistic ~64% for the 20% low-glycerol method (maxV ~1.3). Preset parameter
+  only; the model and the 35.4% benchmark are unchanged.
 - Cell types RBC and platelet are anucleate; platelet retains cytoplasmic
   granules. Parameters (size, Lp, cholesterol) are literature priors.
 - **Avian red blood cell** (cell_type = avian_rbc), a new preset from Bissoyi,

@@ -74,8 +74,13 @@ PRESETS = {
     # Values are LITERATURE PRIORS (not calibrated). Lp ~1.6-3 um/min/atm (AQP1).
     # RBC uses GLYCEROL, not DMSO — the standard clinical cryoprotectant for red
     # cells (low-glycerol ~20% here; the high-glycerol method uses ~40%). Step
-    # dilution mimics deglycerolisation. Literature-prior parameters.
-    "Cell — Red blood cell (prior)":     dict(cell_type="rbc", Viso=90, lp=1.8, ps=0.05,
+    # dilution mimics deglycerolisation. The RBC solute permeability is HIGH
+    # (ps = 0.25), because human red cells carry the AQP3 aquaglyceroporin and are
+    # unusually glycerol-permeable — the reason glycerol works for them. With a
+    # low ps the cell cannot shed glycerol fast enough on dilution and lyses
+    # (osmotic swelling past the lytic limit); ps = 0.25 gives a realistic ~64%
+    # recovery for the 20% low-glycerol method. Literature-prior parameters.
+    "Cell — Red blood cell (prior)":     dict(cell_type="rbc", Viso=90, lp=1.8, ps=0.25,
                                          sterol=40, cyto=0.55, nuc_scale=0.4, adhesion="suspension",
                                          cpa_key="glycerol", conc_pct=20, T_add=22, dilution="step",
                                          apop_resist=1.0, anoikis_resist=1.0, glycolytic=1.0, antioxidant=0.4),
