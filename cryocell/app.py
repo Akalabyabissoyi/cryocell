@@ -242,6 +242,25 @@ DEMO_CAPTIONS = {
     "end":      ("Outcome", "Final 24 h viability and the dominant damage pathway are shown in the Outcome panel on the right."),
 }
 
+# Validation set: model 24 h survival vs published recovery, per cell type. Only
+# hMSC is a hard calibration anchor; the rest are the model's EMERGENT
+# predictions shown against literature so the honest agreement/gap is visible.
+# (preset name, short label, published %, published note, source, calibrated?)
+VALIDATION = [
+    ("Cell line — hMSC (primary)", "hMSC (primary)", 39.8,
+     "1 °C/min, 10% DMSO", "Heng et al. 2005 — calibration anchor", True),
+    ("Cell — Red blood cell (prior)", "Red blood cell", 80.0,
+     "low-glycerol clinical method", "Valeri; Meryman — clinical RBC cryopreservation", False),
+    ("Cell — Avian red blood cell (Bissoyi 2025)", "Avian red blood cell", 90.0,
+     "10% DMSO + polyampholyte", "Bissoyi et al. 2025, ACS Polym Au 6:366", False),
+    ("Cell — T lymphocyte (prior)", "T lymphocyte", None,
+     "typical 50–70% (10% DMSO)", "typical literature range — not a single benchmark", False),
+    ("Cell line — HeLa", "HeLa", None,
+     "typical ~80–90% (robust line)", "typical literature range", False),
+    ("Cell line — A549", "A549", None,
+     "typical ~75–85%", "typical literature range", False),
+]
+
 
 class Worker(QThread):
     done = pyqtSignal(object)
@@ -1415,6 +1434,7 @@ class Main(QMainWindow):
         self.run_timer.timeout.connect(self.run)
         self.statusBar().showMessage("Ready")
         self.run()
+        self._compute_validation()      # fill the validation table once at startup
 
     # ------------------------------------------------------------- controls
     def _controls(self):
@@ -1478,6 +1498,38 @@ class Main(QMainWindow):
     def _set(self, attr, val):
         setattr(self.P, attr, val)
         self.run_timer.start(220)
+
+    # ---------------------------------------------------------- validation table
+    def _compute_validation(self):
+        rows = ["<b>Model 24 h survival vs published recovery</b>",
+                "<span style='color:#7a7873'>Only hMSC is a calibration anchor; the rest are the "
+                "model's emergent predictions, shown against literature so the gap is visible. "
+                "Published values for cell lines are typical ranges, not single benchmarks.</span><br>",
+                "<table cellpadding=5><tr><th align=left>Cell type</th><th align=right>Model S₂₄</th>"
+                "<th align=right>Published</th><th align=left>&nbsp;Notes / source</th></tr>"]
+        for preset, label, pub, note, src, calib in VALIDATION:
+            p = PRESETS.get(preset)
+            try:
+                _, R, _ = simulate(Params(**p)); mod = R['S_24'] * 100
+                modtxt = f"{mod:.0f}%"
+            except Exception:
+                mod = None; modtxt = "—"
+            if pub is None:
+                pubtxt = "—"; delta = ""
+            else:
+                pubtxt = f"{pub:.0f}%"
+                if mod is not None:
+                    d = mod - pub
+                    col = C['good'] if abs(d) <= 12 else C['serious'] if abs(d) <= 25 else C['crit']
+                    delta = f" <span style='color:{col}'>(Δ{'+' if d>=0 else '−'}{abs(d):.0f})</span>"
+                else:
+                    delta = ""
+            tag = " <b style='color:#1baf7a'>[calibrated]</b>" if calib else ""
+            rows.append(f"<tr><td>{label}{tag}</td><td align=right>{modtxt}</td>"
+                        f"<td align=right>{pubtxt}{delta}</td>"
+                        f"<td>&nbsp;{note}<br><span style='color:#7a7873;font-size:11px'>{src}</span></td></tr>")
+        rows.append("</table>")
+        self.valid_txt.setHtml("\n".join(rows))
 
     # ------------------------------------------------- A/B reference comparison
     def _save_ref(self):
@@ -1761,6 +1813,16 @@ class Main(QMainWindow):
                     "mammalian values, not HPA data — the HPA counts proteins, not volume.</i>")
         t.setHtml("\n".join(rows)); hv.addWidget(t)
         tabs.addTab(hw, "HPA reference", "Data & reference")
+
+        # --- validation: model vs published recovery per cell type
+        vw = QWidget(); vv = QVBoxLayout(vw)
+        vrow = QHBoxLayout()
+        vhdr = QLabel("Validation — model vs published recovery")
+        vhdr.setStyleSheet("font-weight:600;")
+        vb = QPushButton("Recompute"); vb.setMaximumWidth(110); vb.clicked.connect(self._compute_validation)
+        vrow.addWidget(vhdr); vrow.addStretch(); vrow.addWidget(vb); vv.addLayout(vrow)
+        self.valid_txt = QTextEdit(); self.valid_txt.setReadOnly(True); vv.addWidget(self.valid_txt, 1)
+        tabs.addTab(vw, "Validation", "Data & reference")
 
         # Outcome stays pinned at the top; the grouped dropdown views sit below,
         # in a vertical splitter so the presenter can size them.
