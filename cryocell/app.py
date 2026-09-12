@@ -1449,7 +1449,9 @@ class Main(QMainWindow):
         split.addWidget(self._controls())
         split.addWidget(self._centre())
         split.addWidget(self._right())
-        split.setSizes([int(_w * 0.22), int(_w * 0.50), int(_w * 0.28)])
+        # give the cell view (middle) and the outcome/spheroid panel (right) more
+        # room; the controls (left) are a scroll area and stay usable when narrow
+        split.setSizes([int(_w * 0.18), int(_w * 0.51), int(_w * 0.31)])
         # AIDO-style shell: three panels above a full-width freeze-thaw timeline
         self.timelinebar = TimelineBar()
         self.timelinebar.seek.connect(self._seek_frame)
@@ -1472,7 +1474,9 @@ class Main(QMainWindow):
         self.preset = QComboBox(); self.preset.addItem("Load a preset…")
         for k in PRESETS: self.preset.addItem(k)
         self.preset.currentTextChanged.connect(self._preset)
-        top.addWidget(self.preset)
+        self.preset.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.preset.setMinimumWidth(90)
+        top.addWidget(self.preset, 1)
         b = QPushButton("Run"); b.clicked.connect(self.run); top.addWidget(b)
         v.addLayout(top)
 
@@ -1491,6 +1495,10 @@ class Main(QMainWindow):
             cb.setCurrentIndex(max(0, [o[0] for o in options].index(getattr(self.P, attr))
                                    if getattr(self.P, attr) in [o[0] for o in options] else 0))
             cb.currentIndexChanged.connect(lambda _i, a=attr, c=cb: self._set(a, c.currentData()))
+            # let the combo shrink (and elide long items) so the controls panel
+            # can be narrow — long names like the ice nucleator won't force width
+            cb.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            cb.setMinimumWidth(90)
             self.widgets[attr] = cb; g.addWidget(cb)
             caption(attr)
         for attr, lab, lo, hi, stp, dec, log, unit in SLIDERS:
