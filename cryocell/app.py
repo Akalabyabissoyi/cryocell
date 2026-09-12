@@ -284,6 +284,19 @@ def _ucurve_job(pdict):
     return UC_RATES, surv
 
 
+def _optmap_job(pdict, rates, concs):
+    """24 h survival over a cooling-rate x CPA-concentration grid (everything else
+    fixed) — the protocol optimisation landscape. Z[i_rate, j_conc] in percent."""
+    Z = np.full((len(rates), len(concs)), np.nan)
+    for i, cr in enumerate(rates):
+        for j, cc in enumerate(concs):
+            d = dict(pdict); d["CR"] = float(cr); d["conc_pct"] = float(cc)
+            d["ko"] = dict(d.get("ko") or {})
+            try: Z[i, j] = simulate(Params(**d))[1]["S_24"] * 100
+            except Exception: pass
+    return list(rates), list(concs), Z
+
+
 class MechanoView(QWidget):
     """Live mechanotransduction / cell-death signalling network, drawn from the
     model state — membrane tension -> Piezo1 -> Ca; microtubule loss/buckling ->
@@ -1759,6 +1772,29 @@ class Main(QMainWindow):
         gsc = QScrollArea(); gsc.setWidget(gw); gsc.setWidgetResizable(True)
         tabs.addTab(gsc, "Cryo-signatures", "Curves")
 
+        # --- protocol optimizer: cooling-rate x CPA-concentration survival map
+        ow = QWidget(); ov = QVBoxLayout(ow)
+        orow = QHBoxLayout()
+        ohdr = QLabel("Protocol optimizer — 24 h survival landscape"); ohdr.setStyleSheet("font-weight:600;")
+        self.optbtn = QPushButton("Compute"); self.optbtn.setMaximumWidth(110)
+        self.optbtn.clicked.connect(self._compute_optmap)
+        orow.addWidget(ohdr); orow.addStretch(); orow.addWidget(self.optbtn); ov.addLayout(orow)
+        self.opt_note = QLabel("Cooling rate × CPA concentration for the current cell, everything "
+                               "else fixed. ● your protocol · ★ grid optimum. Click Compute (~100 runs).")
+        self.opt_note.setWordWrap(True); self.opt_note.setStyleSheet("color:#7a7873;font-size:11px")
+        ov.addWidget(self.opt_note)
+        self.opt_plot = pg.PlotWidget()
+        self.opt_plot.setLabel("bottom", "cooling rate", "°C/min")
+        self.opt_plot.setLabel("left", "CPA concentration", "%")
+        self.opt_plot.setMinimumHeight(320)
+        self.opt_img = pg.ImageItem(); self.opt_plot.addItem(self.opt_img)
+        self.opt_cur = self.opt_plot.plot([], [], pen=None, symbol='o',
+                                          symbolBrush=(255, 255, 255), symbolPen='k', symbolSize=13)
+        self.opt_best = self.opt_plot.plot([], [], pen=None, symbol='star',
+                                           symbolBrush=(255, 232, 90), symbolPen='k', symbolSize=20)
+        ov.addWidget(self.opt_plot, 1)
+        tabs.addTab(ow, "Optimizer", "Curves")
+
         # --- mechanotransduction / cell-death signalling network (live)
         self.mechano = MechanoView()
         msc = QScrollArea(); msc.setWidget(self.mechano); msc.setWidgetResizable(True)
@@ -1916,6 +1952,37 @@ class Main(QMainWindow):
         self.sig_uc_curve.setData(list(rates), list(surv))
         if self.R:
             self.sig_uc_pt.setData([self.P.CR], [self.R["S_24"] * 100])
+
+    # -------------------------------------------------------- protocol optimizer
+    def _compute_optmap(self):
+        self.optbtn.setEnabled(False); self.optbtn.setText("Computing…")
+        rates = np.logspace(-1, 2, 10)          # 0.1 .. 100 °C/min, log-uniform
+        concs = np.linspace(0, 30, 10)          # 0 .. 30 %
+        pdict = {k: v for k, v in vars(self.P).items()}; pdict["ko"] = dict(pdict.get("ko") or {})
+        w = Worker(_optmap_job, pdict, rates, concs); self._workers.append(w)
+        w.done.connect(self._optmap_done)
+        w.fail.connect(lambda e: (self.optbtn.setEnabled(True), self.optbtn.setText("Compute")))
+        w.start()
+
+    def _optmap_done(self, res):
+        rates, concs, Z = res
+        self.optbtn.setEnabled(True); self.optbtn.setText("Compute")
+        rates = np.asarray(rates); concs = np.asarray(concs)
+        lr0, lr1 = math.log10(rates[0]), math.log10(rates[-1])
+        self.opt_img.setImage(Z, levels=(0, 100))
+        self.opt_img.setRect(QRectF(lr0, concs[0], lr1 - lr0, concs[-1] - concs[0]))
+        cmap = pg.ColorMap([0.0, 0.35, 0.7, 1.0],
+                           [(38, 20, 55), (150, 45, 60), (225, 175, 55), (70, 205, 125)])
+        self.opt_img.setLookupTable(cmap.getLookupTable(0.0, 1.0, 256))
+        self.opt_plot.getAxis('bottom').setTicks(
+            [[(math.log10(v), str(v)) for v in (0.1, 0.3, 1, 3, 10, 30, 100)]])
+        self.opt_cur.setData([math.log10(max(self.P.CR, 1e-3))], [self.P.conc_pct])
+        if np.isfinite(Z).any():
+            bi = np.unravel_index(np.nanargmax(Z), Z.shape)
+            self.opt_best.setData([math.log10(rates[bi[0]])], [concs[bi[1]]])
+            self.opt_note.setText(
+                f"Optimum ≈ {Z[bi]:.0f}% at {rates[bi[0]]:.2g} °C/min, {concs[bi[1]]:.0f}% CPA. "
+                f"● your protocol · ★ optimum. Current cell / other settings fixed.")
 
     # ---------------------------------------------------------------- frames
     def _frame_dict(self, i):
