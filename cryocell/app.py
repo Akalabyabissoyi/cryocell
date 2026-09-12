@@ -1526,7 +1526,22 @@ class Main(QMainWindow):
 
     def _set(self, attr, val):
         setattr(self.P, attr, val)
+        # an additive does nothing at 0% — when a co-solute (esp. the ice
+        # nucleator) is chosen from the dropdown, give it a working concentration
+        if attr == "additive" and val != "none" and self.P.add_conc < 6.0:
+            self._set_slider_value("add_conc", 6.0)
         self.run_timer.start(220)
+
+    def _set_slider_value(self, attr, value):
+        """Move a slider widget to `value` and set P (guaranteed, even if the
+        slider position does not change)."""
+        setattr(self.P, attr, value)                       # guarantee P is set
+        spec = next((s for s in SLIDERS if s[0] == attr), None)
+        s = self.widgets.get(attr)
+        if not spec or s is None: return
+        _, _, lo, hi, stp, dec, log, unit = spec
+        raw = math.log10(value) if log else value
+        s.setValue(int(round((float(np.clip(raw, lo, hi)) - lo) / stp)))
 
     # ------------------------------------------------------------ ice nucleator
     def _toggle_nucleator(self, on):
@@ -1535,10 +1550,12 @@ class Main(QMainWindow):
         and its junction propagation)."""
         if on:
             self.P.additive = "inp"
-            if self.P.add_conc < 6.0: self.P.add_conc = 6.0
+            self._sync_additive_widget()
+            if self.P.add_conc < 6.0:
+                self._set_slider_value("add_conc", 6.0)   # give it a working concentration
         elif self.P.additive == "inp":
             self.P.additive = "none"
-        self._sync_additive_widget()
+            self._sync_additive_widget()
         self.run()
 
     def _sync_additive_widget(self):
