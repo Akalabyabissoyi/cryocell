@@ -1046,7 +1046,7 @@ class _SpheroidCanvas(QWidget):
         self.frame = None
         self.diam_um = 300.0
         self.in_plus = False                                     # extracellular ice nucleator?
-        self.setMinimumSize(420, 460)
+        self.setMinimumSize(340, 340)          # small enough for short laptop panels
         self.setAutoFillBackground(True)
         self._layout_cache = {}
         self._prof = None; self._prof_key = None                 # solved CPA profile cache
@@ -1167,11 +1167,13 @@ class _SpheroidCanvas(QWidget):
             cells = _hex_axial(rings); self._layout_cache[rings] = cells
         cellset = set(cells)
         post_thaw = f.get("phase") in ("melt", "dilute", "recover", "end") and f.get("T", 20) > 0.5
-        # pixel geometry — keep the cluster in the left ~58% so the readout column
-        # on the right never overlaps the cells. A flat-top hex disk of `rings`
-        # rings spans ~2*sqrt(3)*rings*size, so normalise `size` by that.
-        cx, cy = w * 0.31, h * 0.50
-        Rpix = min(w * 0.28, h * 0.42)
+        # pixel geometry — the readout column starts at x0; the cluster is fitted
+        # into the space to its LEFT so the two never overlap, even in a narrow
+        # panel on a laptop. A flat-top hex disk of `rings` spans ~2*sqrt(3)*rings.
+        x0 = min(w * 0.60, w - 210.0)                           # readout left edge
+        avail = max(120.0, x0 - 12.0)                           # width left for the cluster
+        cx, cy = avail * 0.5, h * 0.52
+        Rpix = min(avail * 0.46, h * 0.42)
         size = Rpix / (math.sqrt(3) * rings + 0.8)              # hex spacing (fits Rpix)
         crad = size * 0.92
         def px(qc, rc):
@@ -1273,10 +1275,9 @@ class _SpheroidCanvas(QWidget):
         q.setFont(QFont("", 8)); q.setPen(QColor(210, 214, 220))
         q.drawText(QRectF(bx, by + 3, blen + 60, 14), Qt.AlignmentFlag.AlignLeft, f"{bar_um:.0f} µm")
 
-        self._draw_readout(q, w, h, f, Tn, alive_n, shed_n, perf_n, necr_n, len(cells))
+        self._draw_readout(q, w, h, f, Tn, alive_n, shed_n, perf_n, necr_n, len(cells), x0)
 
-    def _draw_readout(self, q, w, h, f, Tn, alive, shed, perf, necr, total):
-        x0 = min(w * 0.60, w - 220.0)
+    def _draw_readout(self, q, w, h, f, Tn, alive, shed, perf, necr, total, x0):
         y = 14
         def line(txt, col=QColor(210, 214, 220), sz=8, bold=False, dy=13):
             nonlocal y
@@ -1333,9 +1334,10 @@ class SpheroidView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         v = QVBoxLayout(self); v.setContentsMargins(8, 8, 8, 8); v.setSpacing(6)
-        head = QHBoxLayout()
         t = QLabel("3D spheroid cryopreservation"); t.setStyleSheet("font-weight:600;")
-        head.addWidget(t); head.addStretch(1)
+        t.setWordWrap(True); v.addWidget(t)
+        # controls on their own row so they never overflow a narrow panel
+        head = QHBoxLayout()
         head.addWidget(QLabel("diameter"))
         self.diam = QComboBox()
         for d in (120, 200, 300, 400, 500):
@@ -1343,9 +1345,11 @@ class SpheroidView(QWidget):
         self.diam.setCurrentIndex(3)                            # 400 um (paper's large case)
         self.diam.currentIndexChanged.connect(self._diam)
         head.addWidget(self.diam)
-        self.inp = QCheckBox("extracellular ice nucleator (IN+)")
+        self.inp = QCheckBox("ice nucleator (IN+)")
+        self.inp.setToolTip("Extracellular ice nucleator: raises the nucleation temperature "
+                            "to avoid deep supercooling (Gao/Bissoyi 2024).")
         self.inp.toggled.connect(self._inp)
-        head.addWidget(self.inp)
+        head.addWidget(self.inp); head.addStretch(1)
         v.addLayout(head)
         sub = QLabel("Follows Gao, Bissoyi, Guo & Gibson 2024 (ACS Biomater Sci Eng 11:208): "
                      "10% DMSO alone supercools to ~-16 °C, shedding surface cells and "
@@ -1445,7 +1449,7 @@ class Main(QMainWindow):
         split.addWidget(self._controls())
         split.addWidget(self._centre())
         split.addWidget(self._right())
-        split.setSizes([int(_w * 0.21), int(_w * 0.52), int(_w * 0.27)])
+        split.setSizes([int(_w * 0.22), int(_w * 0.50), int(_w * 0.28)])
         # AIDO-style shell: three panels above a full-width freeze-thaw timeline
         self.timelinebar = TimelineBar()
         self.timelinebar.seek.connect(self._seek_frame)
@@ -1828,7 +1832,8 @@ class Main(QMainWindow):
 
         # --- 3D spheroid / multicellular construct cryopreservation (live)
         self.spheroid = SpheroidView()
-        tabs.addTab(self.spheroid, "3D spheroid", "3D & atlas")
+        spsc = QScrollArea(); spsc.setWidget(self.spheroid); spsc.setWidgetResizable(True)
+        tabs.addTab(spsc, "3D spheroid", "3D & atlas")
 
         # --- analysis
         aw = QWidget(); av = QVBoxLayout(aw)
@@ -1873,9 +1878,14 @@ class Main(QMainWindow):
         tabs.addTab(vw, "Validation", "Data & reference")
 
         # Outcome stays pinned at the top; the grouped dropdown views sit below,
-        # in a vertical splitter so the presenter can size them.
+        # in a vertical splitter so the presenter can size them. Both halves are
+        # wrapped in scroll areas so the panel fits short laptop screens without
+        # pushing content off the bottom.
+        oc_sc = QScrollArea(); oc_sc.setWidget(outcome_w); oc_sc.setWidgetResizable(True)
+        oc_sc.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        oc_sc.setMinimumHeight(120)
         right = QSplitter(Qt.Orientation.Vertical)
-        right.addWidget(outcome_w); right.addWidget(tabs)
+        right.addWidget(oc_sc); right.addWidget(tabs)
         right.setStretchFactor(0, 3); right.setStretchFactor(1, 4)
         right.setSizes([440, 560])
         return right
