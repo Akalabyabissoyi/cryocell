@@ -8,7 +8,8 @@ from PyQt6.QtGui import (QFont, QColor, QAction, QImage, QPainter, QPen, QPainte
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QGridLayout, QLabel, QSlider, QComboBox, QPushButton, QGroupBox,
     QScrollArea, QCheckBox, QTabWidget, QTextEdit, QSplitter, QSizePolicy,
-    QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QFileDialog)
+    QTableWidget, QTableWidgetItem, QHeaderView, QProgressBar, QFileDialog,
+    QStackedWidget)
 import pyqtgraph as pg
 
 from .model import Params, simulate, CPAS, ADHESION_STATES, ADDITIVES, osm_from_dT
@@ -1310,6 +1311,31 @@ class SpheroidView(QWidget):
         self.canvas.set_frame(f)
 
 
+class _DropdownPanel(QWidget):
+    """A tab-like container that picks pages from a dropdown instead of a tab
+    strip — more ergonomic when there are many views (no overflow / scroll
+    arrows). Mimics the small QTabWidget API used here (addTab / setCurrentIndex
+    / currentIndex)."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(6)
+        row = QHBoxLayout()
+        lbl = QLabel("View"); lbl.setStyleSheet("font-weight:600; color:#52514e;")
+        self.sel = QComboBox(); self.sel.setMinimumWidth(200)
+        row.addWidget(lbl); row.addWidget(self.sel, 1)
+        lay.addLayout(row)
+        self.stack = QStackedWidget()
+        lay.addWidget(self.stack, 1)
+        self.sel.currentIndexChanged.connect(self.stack.setCurrentIndex)
+
+    def addTab(self, w, name):
+        self.stack.addWidget(w); self.sel.addItem(name)
+        return self.sel.count() - 1
+
+    def setCurrentIndex(self, i): self.sel.setCurrentIndex(i)
+    def currentIndex(self): return self.sel.currentIndex()
+
+
 class Main(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -1538,7 +1564,7 @@ class Main(QMainWindow):
 
     # ---------------------------------------------------------------- right
     def _right(self):
-        tabs = QTabWidget()
+        tabs = _DropdownPanel()
         # --- outcome + inspector
         w = QWidget(); v = QVBoxLayout(w)
         self.hero = QLabel("—"); self.hero.setFont(QFont("", 34, QFont.Weight.Bold))
