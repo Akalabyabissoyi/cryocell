@@ -4,7 +4,7 @@ import sys, math, traceback, os, shutil, subprocess
 import numpy as np
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QPointF, QRectF
 from PyQt6.QtGui import (QFont, QColor, QAction, QImage, QPainter, QPen, QPainterPath,
-    QPolygonF, QRadialGradient, QLinearGradient)
+    QPolygonF, QRadialGradient, QLinearGradient, QStandardItemModel, QStandardItem)
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QGridLayout, QLabel, QSlider, QComboBox, QPushButton, QGroupBox,
     QScrollArea, QCheckBox, QTabWidget, QTextEdit, QSplitter, QSizePolicy,
@@ -1314,26 +1314,54 @@ class SpheroidView(QWidget):
 class _DropdownPanel(QWidget):
     """A tab-like container that picks pages from a dropdown instead of a tab
     strip — more ergonomic when there are many views (no overflow / scroll
-    arrows). Mimics the small QTabWidget API used here (addTab / setCurrentIndex
-    / currentIndex)."""
+    arrows). Views can be grouped under non-selectable section headers. Mimics
+    the small QTabWidget API used here (addTab / setCurrentIndex / currentIndex);
+    indices are stack-page indices, not combo rows."""
     def __init__(self, parent=None):
         super().__init__(parent)
         lay = QVBoxLayout(self); lay.setContentsMargins(0, 0, 0, 0); lay.setSpacing(6)
         row = QHBoxLayout()
         lbl = QLabel("View"); lbl.setStyleSheet("font-weight:600; color:#52514e;")
         self.sel = QComboBox(); self.sel.setMinimumWidth(200)
+        self._model = QStandardItemModel(self.sel); self.sel.setModel(self._model)
         row.addWidget(lbl); row.addWidget(self.sel, 1)
         lay.addLayout(row)
         self.stack = QStackedWidget()
         lay.addWidget(self.stack, 1)
-        self.sel.currentIndexChanged.connect(self.stack.setCurrentIndex)
+        self._last_group = None; self._first_row = None
+        self.sel.currentIndexChanged.connect(self._on_sel)
 
-    def addTab(self, w, name):
-        self.stack.addWidget(w); self.sel.addItem(name)
-        return self.sel.count() - 1
+    def addTab(self, w, name, group=None):
+        page = self.stack.count(); self.stack.addWidget(w)
+        if group and group != self._last_group:            # non-selectable header
+            hdr = QStandardItem(group.upper())
+            hdr.setFlags(Qt.ItemFlag.NoItemFlags)
+            hf = QFont(); hf.setBold(True); hf.setPointSize(8)
+            hdr.setData(hf, Qt.ItemDataRole.FontRole)
+            hdr.setData(QColor("#8a8873"), Qt.ItemDataRole.ForegroundRole)
+            self._model.appendRow(hdr); self._last_group = group
+        it = QStandardItem(("   " + name) if group else name)
+        it.setData(page, Qt.ItemDataRole.UserRole)
+        self._model.appendRow(it)
+        if self._first_row is None:
+            self._first_row = it.row(); self.sel.setCurrentIndex(it.row())
+        return page
 
-    def setCurrentIndex(self, i): self.sel.setCurrentIndex(i)
-    def currentIndex(self): return self.sel.currentIndex()
+    def _on_sel(self, row):
+        it = self._model.item(row)
+        if it is None: return
+        pg = it.data(Qt.ItemDataRole.UserRole)
+        if pg is not None: self.stack.setCurrentIndex(pg)
+
+    def setCurrentIndex(self, page):                        # page = stack index
+        for r in range(self._model.rowCount()):
+            it = self._model.item(r)
+            if it and it.data(Qt.ItemDataRole.UserRole) == page:
+                self.sel.setCurrentIndex(r); return
+
+    def currentIndex(self):
+        it = self._model.item(self.sel.currentIndex())
+        return it.data(Qt.ItemDataRole.UserRole) if it else 0
 
 
 class Main(QMainWindow):
@@ -1565,8 +1593,10 @@ class Main(QMainWindow):
     # ---------------------------------------------------------------- right
     def _right(self):
         tabs = _DropdownPanel()
-        # --- outcome + inspector
-        w = QWidget(); v = QVBoxLayout(w)
+        # --- outcome + inspector (PINNED — always visible above the dropdown views)
+        w = QWidget(); v = QVBoxLayout(w); v.setContentsMargins(0, 0, 0, 0)
+        oc_l = QLabel("Outcome"); oc_l.setStyleSheet("font-weight:600; color:#52514e;")
+        v.addWidget(oc_l)
         self.hero = QLabel("—"); self.hero.setFont(QFont("", 34, QFont.Weight.Bold))
         v.addWidget(self.hero)
         self.hero2 = QLabel(); self.hero2.setStyleSheet("color:#52514e"); self.hero2.setWordWrap(True)
@@ -1593,7 +1623,7 @@ class Main(QMainWindow):
         insp_l = QLabel("Inspector"); insp_l.setStyleSheet("font-weight:600;color:#52514e")
         v.addWidget(insp_l)
         self.insp = QTextEdit(); self.insp.setReadOnly(True); v.addWidget(self.insp, 1)
-        tabs.addTab(w, "Outcome")
+        outcome_w = w                                  # pinned, not added to the dropdown
 
         # --- plots
         pw = QWidget(); pv = QVBoxLayout(pw)
@@ -1615,7 +1645,7 @@ class Main(QMainWindow):
             self.plots.append((p, series)); self.curves.append(cs)
             pv.addWidget(p)
         sc = QScrollArea(); sc.setWidget(pw); sc.setWidgetResizable(True)
-        tabs.addTab(sc, "Plots")
+        tabs.addTab(sc, "Plots", "Curves")
 
         # --- cryo-signatures: the three classic quantitative cryobiology plots
         gw = QWidget(); gv = QVBoxLayout(gw)
@@ -1644,30 +1674,30 @@ class Main(QMainWindow):
                       "the dot marks your protocol. The phase diagram and V–T trace the current run.")
         note.setStyleSheet("color:#7a7873;font-size:11px"); note.setWordWrap(True); gv.addWidget(note)
         gsc = QScrollArea(); gsc.setWidget(gw); gsc.setWidgetResizable(True)
-        tabs.addTab(gsc, "Cryo-signatures")
+        tabs.addTab(gsc, "Cryo-signatures", "Curves")
 
         # --- mechanotransduction / cell-death signalling network (live)
         self.mechano = MechanoView()
         msc = QScrollArea(); msc.setWidget(self.mechano); msc.setWidgetResizable(True)
-        tabs.addTab(msc, "Signalling")
+        tabs.addTab(msc, "Signalling", "Cell mechanisms")
 
         # --- molecular-detail focal-adhesion & LINC inset (live)
         self.molec = MolecularView()
         molsc = QScrollArea(); molsc.setWidget(self.molec); molsc.setWidgetResizable(True)
-        tabs.addTab(molsc, "FA · LINC")
+        tabs.addTab(molsc, "FA · LINC", "Cell mechanisms")
 
         # --- BioGPU-style cell-stress pathway readout (live)
         self.stress = StressView()
         strsc = QScrollArea(); strsc.setWidget(self.stress); strsc.setWidgetResizable(True)
-        tabs.addTab(strsc, "Stress pathways")
+        tabs.addTab(strsc, "Stress pathways", "Cell mechanisms")
 
         # --- HPA-style compartment atlas (each compartment isolated)
         atsc = QScrollArea(); atsc.setWidget(CompartmentAtlas()); atsc.setWidgetResizable(True)
-        tabs.addTab(atsc, "Atlas")
+        tabs.addTab(atsc, "Atlas", "3D & atlas")
 
         # --- 3D spheroid / multicellular construct cryopreservation (live)
         self.spheroid = SpheroidView()
-        tabs.addTab(self.spheroid, "3D spheroid")
+        tabs.addTab(self.spheroid, "3D spheroid", "3D & atlas")
 
         # --- analysis
         aw = QWidget(); av = QVBoxLayout(aw)
@@ -1680,7 +1710,7 @@ class Main(QMainWindow):
         self.pop_plot = pg.PlotWidget(title="Per-cell 24 h survival")
         self.pop_plot.setMinimumHeight(190); av.addWidget(self.pop_plot)
         self.anal = QTextEdit(); self.anal.setReadOnly(True); av.addWidget(self.anal, 1)
-        tabs.addTab(aw, "Analysis")
+        tabs.addTab(aw, "Analysis", "Data & reference")
 
         # --- HPA
         hw = QWidget(); hv = QVBoxLayout(hw)
@@ -1699,8 +1729,15 @@ class Main(QMainWindow):
         rows.append("</table><br><i>Volume fractions used for the drawing are conventional "
                     "mammalian values, not HPA data — the HPA counts proteins, not volume.</i>")
         t.setHtml("\n".join(rows)); hv.addWidget(t)
-        tabs.addTab(hw, "HPA reference")
-        return tabs
+        tabs.addTab(hw, "HPA reference", "Data & reference")
+
+        # Outcome stays pinned at the top; the grouped dropdown views sit below,
+        # in a vertical splitter so the presenter can size them.
+        right = QSplitter(Qt.Orientation.Vertical)
+        right.addWidget(outcome_w); right.addWidget(tabs)
+        right.setStretchFactor(0, 3); right.setStretchFactor(1, 4)
+        right.setSizes([440, 560])
+        return right
 
     # ------------------------------------------------------------------ run
     def run(self):
