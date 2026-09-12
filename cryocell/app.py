@@ -1368,7 +1368,14 @@ class Main(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("CryoCell — a virtual cell for cryoprotectant testing")
-        self.resize(1680, 1000)
+        # Fit the laptop screen: open at the smaller of a comfortable target and
+        # the actual available screen area, and centre within it. Keep a modest
+        # minimum so it stays usable; scroll areas and the splitter absorb the rest.
+        self.setMinimumSize(860, 560)
+        _ag = QApplication.primaryScreen().availableGeometry()
+        _w, _h = min(1680, _ag.width()), min(1000, _ag.height())
+        self.resize(_w, _h)
+        self.move(_ag.left() + (_ag.width() - _w) // 2, _ag.top() + (_ag.height() - _h) // 2)
         self.P = Params()
         self.S = self.R = None
         self.ref = None                 # saved reference run for A/B comparison
@@ -1380,7 +1387,7 @@ class Main(QMainWindow):
         split.addWidget(self._controls())
         split.addWidget(self._centre())
         split.addWidget(self._right())
-        split.setSizes([330, 800, 430])
+        split.setSizes([int(_w * 0.21), int(_w * 0.52), int(_w * 0.27)])
         # AIDO-style shell: three panels above a full-width freeze-thaw timeline
         self.timelinebar = TimelineBar()
         self.timelinebar.seek.connect(self._seek_frame)

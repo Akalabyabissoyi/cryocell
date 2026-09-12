@@ -202,7 +202,7 @@ class CellView(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setMouseTracking(True)
-        self.setMinimumSize(560, 460)
+        self.setMinimumSize(340, 320)          # small enough to fit laptop screens
         self.setAutoFillBackground(True)
 
         self.sb = SoftBody(n=160, radius=110.0)
