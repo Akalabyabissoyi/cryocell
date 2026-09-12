@@ -87,6 +87,14 @@ ADDITIVES = {
     "afp":   dict(name="Antifreeze protein (AFP-III)",M=7000,  iri=0.90, membStab=0.30, wRepl=0.20, tox=0.35),
     "pva":   dict(name="PVA (polyvinyl alcohol)",    M=30000,  iri=0.70, membStab=0.25, wRepl=0.15, tox=0.05),
     "dex":   dict(name="Dextran (40-70 kDa)",        M=70000,  iri=0.15, membStab=0.50, wRepl=0.25, tox=0.02),
+    # Extracellular ice NUCLEATOR (e.g. pollen-derived macromolecular INP): does
+    # not inhibit ice, it TRIGGERS extracellular ice at a warm sub-zero
+    # temperature, preventing deep supercooling. Warm controlled nucleation lets
+    # cells dehydrate in time and relieves the intracellular supercooling that
+    # drives intracellular ice and its cell-to-cell propagation. antiSC = its
+    # anti-supercooling strength (Gao/Bissoyi/Guo/Gibson 2024; Gao/Bissoyi 2023).
+    "inp":   dict(name="Ice nucleator (INP, warm nucleation)", M=5000, iri=0.05, membStab=0.10,
+                  wRepl=0.05, tox=0.02, antiSC=0.90),
 }
 
 ADHESION_STATES = {
@@ -358,6 +366,10 @@ def simulate(P: Params):
     add_pres = clamp(P.add_conc / 6.0, 0, 1) if P.additive != "none" else 0.0  # coverage: full at ~6% w/v
     add_iri  = add["iri"] * add_pres
     memb_prot = clamp(add["membStab"] * add_pres, 0, 0.85)                     # membrane-damage reduction
+    # Warm extracellular ice nucleator: suppresses intracellular ice nucleation
+    # and its junction propagation by relieving supercooling (see ADDITIVES).
+    nuc_antisc = add.get("antiSC", 0.0) * add_pres
+    nuc_supp   = clamp(1.0 - 0.9 * nuc_antisc, 0.05, 1.0)
 
     # --- composition-specific thermodynamics (Elliott virial + CPA Tg'/eutectic)
     tg_run   = cpa["TgP"]
@@ -757,6 +769,10 @@ def simulate(P: Params):
         # small f_ice term seeds invasion from the frozen extracellular side.
         J_prop = (P.k_prop * junction * mob * (P_iif + 0.004 * f_ice)
                   if (ice and not slow and not KO.get("nucl")) else 0.0)
+        # a warm ice nucleator relieves supercooling, suppressing intracellular
+        # nucleation and its cell-to-cell propagation (extracellular ice /
+        # dehydration are unaffected)
+        J *= nuc_supp; J_prop *= nuc_supp
         last_haz = J + J_prop
         if J + J_prop > 0:
             P_iif = 1 - (1 - P_iif) * math.exp(-(J + J_prop) * dt)

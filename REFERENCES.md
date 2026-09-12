@@ -266,6 +266,20 @@ flagged, never faked.
   (sigma, EaPs, Tg', eutectic, water-replacement). These are priors, not
   measurements, and are flagged as such; tune against data before quoting numbers.
 - RBC cryopreservation uses **glycerol** (not DMSO); the RBC preset reflects this.
+- **Extracellular ice nucleator (INP).** A new additive ("Ice nucleator (INP,
+  warm nucleation)") that, unlike the ice-recrystallisation inhibitors, TRIGGERS
+  extracellular ice at a warm sub-zero temperature to prevent deep supercooling
+  (pollen-derived macromolecular nucleators; Gao/Bissoyi/Guo/Gibson 2024,
+  doi:10.1021/acsbiomaterials.4c00958; Gao/Bissoyi 2023, doi:10.1039/d3cc02252h).
+  Warm controlled nucleation lets cells dehydrate in time and relieves the
+  intracellular supercooling that drives intracellular ice and its cell-to-cell
+  propagation, so the model suppresses the intracellular nucleation hazard J and
+  the junction propagation J_prop (extracellular ice and dehydration are
+  unaffected). It rescues the junction-coupled 3D-spheroid protocol from ~7% to
+  ~40% 24 h survival (a large improvement, consistent with the measured 20% ->
+  80-100% for robust spheroid lines; the modelled primary-cell phenotype is more
+  fragile). The spheroid view's IN+ checkbox drives this same additive, and the
+  benchmark (no additive) is unchanged at 35.4%.
 - Fix: the mammalian RBC solute permeability was raised (ps 0.05 -> 0.25) to
   reflect the **AQP3 aquaglyceroporin** that makes human red cells unusually
   glycerol-permeable (the reason glycerol is their cryoprotectant). With the low

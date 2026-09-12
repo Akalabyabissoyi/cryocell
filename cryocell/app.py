@@ -1528,6 +1528,27 @@ class Main(QMainWindow):
         setattr(self.P, attr, val)
         self.run_timer.start(220)
 
+    # ------------------------------------------------------------ ice nucleator
+    def _toggle_nucleator(self, on):
+        """The spheroid view's IN+ checkbox drives the real model additive, so the
+        Outcome viability responds (warm nucleation suppresses intracellular ice
+        and its junction propagation)."""
+        if on:
+            self.P.additive = "inp"
+            if self.P.add_conc < 6.0: self.P.add_conc = 6.0
+        elif self.P.additive == "inp":
+            self.P.additive = "none"
+        self._sync_additive_widget()
+        self.run()
+
+    def _sync_additive_widget(self):
+        cb = self.widgets.get("additive")
+        if cb is None: return
+        cb.blockSignals(True)
+        keys = [cb.itemData(i) for i in range(cb.count())]
+        if self.P.additive in keys: cb.setCurrentIndex(keys.index(self.P.additive))
+        cb.blockSignals(False)
+
     # ---------------------------------------------------------- validation table
     def _compute_validation(self):
         rows = ["<b>Model 24 h survival vs published recovery</b>",
@@ -1832,6 +1853,9 @@ class Main(QMainWindow):
 
         # --- 3D spheroid / multicellular construct cryopreservation (live)
         self.spheroid = SpheroidView()
+        # the spheroid view's IN+ checkbox also drives the REAL model additive, so
+        # toggling it updates the Outcome viability, not just the illustration
+        self.spheroid.inp.toggled.connect(self._toggle_nucleator)
         spsc = QScrollArea(); spsc.setWidget(self.spheroid); spsc.setWidgetResizable(True)
         tabs.addTab(spsc, "3D spheroid", "3D & atlas")
 
@@ -1941,6 +1965,11 @@ class Main(QMainWindow):
             f"{n} frames · peak ROCK {R['rockPeak']:.2f} · grain {R['grainMax']:.0f} µm · "
             f"min channel/cell {R['squeezeMin']:.2f} · ATP min {R['atpMin']:.2f}")
         self._update_compare()
+        # keep the spheroid IN+ checkbox in sync with the model additive
+        if hasattr(self, "spheroid"):
+            self.spheroid.inp.blockSignals(True)
+            self.spheroid.inp.setChecked(self.P.additive == "inp")
+            self.spheroid.inp.blockSignals(False)
 
     # ------------------------------------------------------- cryo-signatures
     def _update_signatures(self):
