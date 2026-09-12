@@ -229,6 +229,19 @@ HELP = {
     "cyto":          "Cytoskeletal density; scales mechanical stiffness and cold-labile depolymerisation.",
 }
 
+# Narration for the guided demo: what is happening, per protocol phase.
+DEMO_CAPTIONS = {
+    "load":     ("Loading CPA", "Cryoprotectant permeates the cell while water leaves, so the cell shrinks. More CPA means less water is left to freeze."),
+    "cool":     ("Cooling", "Extracellular water freezes first and concentrates the outside solution, pulling water out of the cell. Mazur's two factors: cool too fast and water is trapped → intracellular ice; too slow and the cell sits in toxic concentrated solution."),
+    "seed":     ("Ice seeding", "Ice is induced at a warm sub-zero temperature to avoid deep supercooling. A warmer nucleation temperature means gentler, more controlled freezing."),
+    "store":    ("Storage at −196 °C", "Molecular motion has effectively stopped; the cytosol is a rigid glass or solid. Whatever intracellular ice formed on the way down is now locked in."),
+    "warm":     ("Warming", "Fast warming limits ice recrystallisation — the regrowth of small, survivable crystals into large, membrane-shredding ones."),
+    "melt":     ("Melting", "Extracellular ice disappears; the cell is briefly surrounded by a very concentrated solution before dilution."),
+    "dilute":   ("Dilution / CPA wash-out", "Removing CPA too quickly lets water rush back in and swell the cell past its lytic limit. Stepwise dilution with sucrose limits the swelling."),
+    "recover":  ("Recovery", "Survivors re-establish their volume and metabolism. Delayed-onset death (ROS, apoptosis) still plays out over the next 1–3 days."),
+    "end":      ("Outcome", "Final 24 h viability and the dominant damage pathway are shown in the Outcome panel on the right."),
+}
+
 
 class Worker(QThread):
     done = pyqtSignal(object)
@@ -1381,6 +1394,7 @@ class Main(QMainWindow):
         self.ref = None                 # saved reference run for A/B comparison
         self.idx = 0
         self.playing = False
+        self.demo_on = False            # guided walkthrough running
         self._workers = []
 
         split = QSplitter(Qt.Orientation.Horizontal)
@@ -1545,7 +1559,17 @@ class Main(QMainWindow):
                             "QPushButton:checked{background:#2a78d6;color:white;border-color:#2a78d6}")
             b.clicked.connect(lambda _c, p=ph: self._jump_phase(p))
             self.threadbtns[ph] = b; thr.addWidget(b)
-        thr.addStretch(); v.addLayout(thr)
+        self.demobtn = QPushButton("▶ Guided demo")
+        self.demobtn.setToolTip("Play through the whole protocol with a caption explaining "
+                                "the physics at each phase — a self-running walkthrough for talks.")
+        self.demobtn.clicked.connect(self._toggle_demo)
+        thr.addStretch(); thr.addWidget(self.demobtn); v.addLayout(thr)
+        # guided-demo caption banner (hidden unless the demo is running)
+        self.demobanner = QLabel(); self.demobanner.setWordWrap(True)
+        self.demobanner.setStyleSheet(
+            "background:#0b2038; color:#eaf1fb; border:1px solid #2a78d6; border-radius:6px;"
+            "padding:7px 10px; font-size:12px;")
+        self.demobanner.hide(); v.addWidget(self.demobanner)
         self.view = CellView()
         self.view.hovered.connect(self._hover)
         self.view.selected.connect(self._select)
@@ -1877,6 +1901,10 @@ class Main(QMainWindow):
         cur = f['phase']
         for ph, b in self.threadbtns.items():
             b.blockSignals(True); b.setChecked(ph == cur); b.blockSignals(False)
+        if self.demo_on:
+            cap = DEMO_CAPTIONS.get(cur)
+            if cap:
+                self.demobanner.setText(f"<b>{cap[0]}</b> &nbsp;·&nbsp; {f['T']:.0f} °C<br>{cap[1]}")
         if self.view.sel or self.view.hover:
             self._hover(self.view.hover or self.view.sel)
 
@@ -1900,9 +1928,30 @@ class Main(QMainWindow):
         self.playbtn.setText("❚❚" if self.playing else "▶")
         self.play_timer.start(40) if self.playing else self.play_timer.stop()
 
+    # ------------------------------------------------------------- guided demo
+    def _toggle_demo(self):
+        if self.demo_on:
+            self._stop_demo(); return
+        if not self.S: return
+        self.demo_on = True
+        self.demobtn.setText("■ Stop demo"); self.demobanner.show()
+        self.idx = 0
+        if not self.playing: self._play()          # start the animation
+        self._show(0)
+
+    def _stop_demo(self):
+        self.demo_on = False
+        self.demobtn.setText("▶ Guided demo"); self.demobanner.hide()
+        if self.playing: self._play()              # pause the animation
+
     def _advance(self):
         if not self.S: return
-        self.idx = (self.idx + 2) % len(self.S)
+        nxt = self.idx + 2
+        if self.demo_on and nxt >= len(self.S):    # demo ends at the last frame
+            self.idx = len(self.S) - 1
+            self.scrub.blockSignals(True); self.scrub.setValue(self.idx); self.scrub.blockSignals(False)
+            self._show(self.idx); self._stop_demo(); return
+        self.idx = nxt % len(self.S)
         self.scrub.blockSignals(True); self.scrub.setValue(self.idx); self.scrub.blockSignals(False)
         self._show(self.idx)
 
