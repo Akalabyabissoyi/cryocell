@@ -361,10 +361,10 @@ counts are bundled (cryocell/pathways.py: HPA_COMPARTMENTS), not the HPA table.
 
 ## N. 3D spheroid cryopreservation view
 
-The "3D spheroid" tab is an illustrative radial overlay on the single-cell
-solve (not a full 3D reaction-diffusion solve) built to teach how a
-multicellular construct behaves differently from a cell in suspension. It
-follows the group's own spheroid-cryopreservation work:
+The "3D spheroid" tab pairs a genuine 1-D spherical CPA-diffusion solve (see
+below) with a damage model, to teach how a multicellular construct behaves
+differently from a cell in suspension. It follows the group's own
+spheroid-cryopreservation work:
 
 - Gao, Bissoyi, Guo & Gibson, "Induced Extracellular Ice Nucleation Protects
   Cocultured Spheroid Interior and Exterior during Cryopreservation," ACS
@@ -392,14 +392,22 @@ What the view computes, and its honest limits:
 - Nucleation regime: the IN+ toggle switches the effective nucleation
   temperature between the two measured values above (-9.25 vs -15.77 degC);
   supercooling severity drives the damage.
-- Surface shedding and interior perforation are modelled as separate radial
-  damage fields (outer shells vs inner shells), scaled by supercooling severity
-  and construct diameter (200 um good, 400 um worse), reproducing the paper's
-  spatial pattern.
-- Radial CPA loading gradient: penetration depth delta ~ sqrt(D_eff * t_hold),
-  D_eff ~ 3e-11 m2/s (tortuous-tissue order-of-magnitude value, Xu 2014;
-  Devireddy tissue reviews), so a large core stays CPA-starved in a fixed
-  loading hold.
+- Radial CPA field: a genuine 1-D spherical diffusion solve (Fick's second law
+  in spherical symmetry, explicit finite difference; cryocell/spheroid_model.py),
+  giving the real radial CPA profile at the end of the loading hold rather than a
+  sqrt(D*t) estimate. D_eff here is an EFFECTIVE loading coefficient (~8 um2/s):
+  loading a deep cell requires CPA to permeate many cell membranes in series, so
+  it is far below free-solution (~1200) or extracellular-tortuous (~200-500)
+  diffusion. ~8 um2/s reproduces the measured size effect (200 um cores load
+  fully in a 10 min hold, 400 um cores stay under-loaded). Order-of-magnitude
+  prior, labelled as such (Xu 2014; Devireddy tissue reviews). Heat diffuses
+  ~10^3 x faster, so thermal gradients are negligible and not modelled.
+- Interior perforation is driven directly by that solved profile: a shell
+  perforates where it is under-loaded AND supercooled, so a small fully-loaded
+  spheroid does not perforate and a large CPA-starved core does. Surface
+  shedding is a supercooling-driven mechanical effect on the outer shells. Both
+  vanish under IN+ (no supercooling), matching the paper: IN+ protects even a
+  large, under-loaded construct.
 - A pre-existing hypoxic/necrotic core (a standard 3D-culture feature, not a
   cryo effect) is drawn separately for large spheroids so it is not confused
   with freezing damage.
@@ -423,3 +431,21 @@ Both are UI only; the model and the 35.4% benchmark are untouched.
   viability, functional recovery, P(IIF) and peak swelling, colour-coded by
   whether the change helped or hurt. This makes cause and effect explicit for
   teaching (e.g. add trehalose, or change the cooling rate, and watch the delta).
+
+## P. Teaching & analysis views (guided demo, optimizer, validation)
+
+- **Guided demo.** A self-running walkthrough plays the whole protocol and shows
+  a caption explaining the physics at each phase (load -> cool -> seed -> store
+  -> warm -> melt -> dilute -> recover -> outcome). Presentation aid; no model
+  change.
+- **Protocol optimizer.** Re-runs the model over a cooling-rate x
+  CPA-concentration grid (~100 runs, worker thread) and shows 24 h survival as a
+  heatmap with the current protocol and the grid optimum marked — the Mazur
+  two-factor landscape in 2-D. It independently recovers the calibrated optimum
+  (1 C/min, 10% DMSO ~ 35%), a useful self-check. Re-runs the model only.
+- **Validation view.** Computes the model's 24 h survival for each cell-type
+  preset and shows it against published recovery (hMSC 39.8% Heng 2005 —
+  calibration anchor; avian RBC ~90% Bissoyi 2025; RBC ~80% clinical
+  low-glycerol; cell lines as typical ranges), colour-coded by gap, so the
+  honest agreement and the gaps (e.g. under-prediction of robust cancer lines)
+  are visible rather than hidden.

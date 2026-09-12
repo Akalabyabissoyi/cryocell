@@ -19,6 +19,7 @@ from .hpa import HPA, HPA_TOTALS, GEOMETRY, summary_line
 from .cellview import (CellView, LAYERS, C, STRESS_PATHWAYS, stress_activity,
                        pathway_applicable, cell_has_compartment)
 from .pathways import REACTOME, REACTOME_RETRIEVED
+from .spheroid_model import solve_cpa_profile, sample as _sph_sample
 try:
     from .pathways import HPA_COMPARTMENTS, HPA_RETRIEVED
 except Exception:
@@ -1048,6 +1049,7 @@ class _SpheroidCanvas(QWidget):
         self.setMinimumSize(420, 460)
         self.setAutoFillBackground(True)
         self._layout_cache = {}
+        self._prof = None; self._prof_key = None                 # solved CPA profile cache
 
     def set_frame(self, f):
         self.frame = f; self.update()
@@ -1059,35 +1061,42 @@ class _SpheroidCanvas(QWidget):
         self.in_plus = bool(on); self.update()
 
     # ---- physics helpers ---------------------------------------------------
-    def _penetration_um(self, f):
-        """CPA penetration depth from the surface, microns.
-
-        Equilibration is set during the warm loading hold: diffusion is
-        Arrhenius-slow once cooling starts and stops when the construct freezes,
-        so whatever the core failed to take up during the hold stays missing
-        into the freeze. During the hold itself the front is still advancing, so
-        it grows with elapsed time up to the full hold; after that it is fixed.
-        """
+    def _profile(self, f):
+        """Solved radial CPA profile (r_frac, cpa_frac) from the 1-D spherical
+        diffusion model, cached by diameter and elapsed loading time. Loading is
+        set during the warm hold and effectively frozen once cooling starts, so
+        after loading the full-hold profile is used; during 'load' it advances
+        with elapsed time to animate the front."""
         t_hold = max(f.get("hold_min", 10.0), 0.1) * 60.0        # s
         if f.get("phase") == "load":
-            t_eff = clamp(f.get("t", t_hold), 0.0, t_hold)       # still loading
+            t_eff = clamp(f.get("t", t_hold), 1.0, t_hold)
         else:
-            t_eff = t_hold                                       # frozen at hold value
-        return math.sqrt(_D_EFF_CPA * t_eff) * 1e6              # m -> um
+            t_eff = t_hold
+        key = (round(self.diam_um), round(t_eff / 20.0))         # coarse cache key
+        if key != self._prof_key:
+            self._prof_key = key
+            self._prof = solve_cpa_profile(self.diam_um / 2.0, t_eff)
+        return self._prof
+
+    def _penetration_um(self, f):
+        """Depth from the surface, in microns, that the CPA front (>=50% loaded)
+        has reached — derived from the solved profile, for the 'CPA front' ring."""
+        r_frac, cpa = self._profile(f)
+        R = self.diam_um / 2.0
+        loaded = (cpa >= 0.5)
+        if loaded.all():
+            return R                                             # fully reached core
+        u50 = r_frac[loaded][0] if loaded.any() else 1.0         # innermost loaded shell
+        return R * (1.0 - u50)
 
     def _cpa_frac(self, u, f):
-        """Local CPA fraction (0..1) at fractional radius u (0 core .. 1 rim)."""
+        """Local CPA fraction (0..1) at fractional radius u (0 core .. 1 rim),
+        read from the solved 1-D spherical diffusion profile."""
         loaded = clamp(f.get("cpaLoad", 0.0) / 0.6, 0.0, 1.0)    # any CPA on board?
         if loaded <= 0.01:
             return 0.0
-        R = self.diam_um / 2.0
-        depth = R * (1.0 - u)                                    # um from surface
-        delta = self._penetration_um(f)
-        if depth <= delta:
-            local = 1.0
-        else:
-            local = math.exp(-(depth - delta) / max(0.6 * delta, 1e-6))
-        return clamp(loaded * local, 0.0, 1.0)
+        r_frac, cpa = self._profile(f)
+        return clamp(loaded * _sph_sample(r_frac, cpa, u), 0.0, 1.0)
 
     def _necrotic(self, u, f):
         """Pre-existing hypoxic/necrotic core fraction (0..1), size-dependent.
@@ -1127,12 +1136,15 @@ class _SpheroidCanvas(QWidget):
         return clamp(ss * rim * (0.7 + 0.3 * self._sizefac()), 0.0, 1.0)
 
     def _perforate(self, u, f):
-        """Interior perforation at shell u. Without induced nucleation the core
-        shows voids/perforation (Gao/Bissoyi 2024) -- pronounced in large
-        spheroids, minimal in small ones. Confined to the inner shells."""
+        """Interior perforation at shell u. Without induced nucleation an
+        UNDER-LOADED core forms ice and perforates (Gao/Bissoyi 2024). Now driven
+        directly by the solved radial CPA profile: a small spheroid whose core
+        loads fully does not perforate; a large spheroid whose core stays
+        CPA-starved does. Requires supercooling (DMSO-only) and inner shells."""
         ss = self._supercool_sev()
-        core = clamp((0.62 - u) / 0.62, 0.0, 1.0)               # inner shells
-        return clamp(ss * core * (0.35 + 0.65 * self._sizefac()), 0.0, 1.0)
+        core = clamp((0.7 - u) / 0.7, 0.0, 1.0)                 # inner shells
+        under = 1.0 - self._cpa_frac(u, f)                      # from the 1-D solve
+        return clamp(ss * core * under, 0.0, 1.0)
 
     def _dead(self, u, f):
         """Post-thaw lethality at shell u: shed rim OR perforated interior."""
@@ -1307,12 +1319,12 @@ class _SpheroidCanvas(QWidget):
             y += 15
         y += 3
         q.setPen(QColor(130, 138, 150)); q.setFont(QFont("", 7))
-        q.drawText(QRectF(x0, y, w - x0 - 4, 120), Qt.TextFlag.TextWordWrap,
-                   "Damage pattern from Gao, Bissoyi, Guo & Gibson 2024 (ACS Biomater "
-                   "Sci Eng 11:208): DMSO-only supercooling shears surface cells and "
-                   "perforates the interior; an extracellular nucleator (IN+) raises the "
-                   "nucleation temperature and protects both. Illustrative radial overlay "
-                   "on the single-cell solve, not a 3D reaction-diffusion solve.")
+        q.drawText(QRectF(x0, y, w - x0 - 4, 130), Qt.TextFlag.TextWordWrap,
+                   "Radial CPA field from a 1-D spherical diffusion solve (Fick, effective "
+                   "loading coefficient ~8 µm²/s). Damage pattern from Gao, Bissoyi, Guo & "
+                   "Gibson 2024 (ACS Biomater Sci Eng 11:208): DMSO-only supercooling shears "
+                   "surface cells and perforates the interior; an extracellular nucleator "
+                   "(IN+) raises the nucleation temperature and protects both.")
 
 
 class SpheroidView(QWidget):
