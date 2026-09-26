@@ -59,6 +59,19 @@ polycrystal. The pocket is elongated rather than isotropic, because a cell is
 not compressible: when the intergranular channel narrows below the cell
 diameter the cell deforms into a longer pocket rather than being crushed.
 
+**Ice nucleation mode** ("Ice nucleation mode" control) has two settings:
+*isotropic* (default) nucleates everywhere at once, as above. *Directional
+pre-freeze* instead sweeps a single planar ice front across the field at a
+controlled velocity ("Directional front velocity", default 30 µm/s) — a
+translational-cryostage protocol per Bahari, Bein, Yashunsky & Braslavsky 2018
+(PLOS ONE 13(2):e0192265), who found 30 µm/s directional growth, followed by
+ordinary slow cooling, gave the best post-thaw viability for adherent
+monolayers. While the front sweeps past, the view also shows a fainter,
+trailing *vitreous front* — the two-moving-boundary picture (crystallisation
+front, then a lagging glass-transition front in the residual liquor) from Qin,
+Eschenbrenner, Ginot, Dedovets, Coradin, Deville & Fernandes 2020 (J. Phys.
+Chem. Lett., doi:10.1021/acs.jpclett.0c01729). See `REFERENCES.md` section Q.
+
 ## The deformable cell
 
 The membrane is a 160-vertex contour with tension springs whose **rest length

@@ -37,6 +37,16 @@ def clamp(v, a, b): return max(a, min(b, v))
 PRESETS = {
     "MSC bank standard":            dict(cpa_key="dmso", conc_pct=10, T_add=22, hold_min=10, add_steps=3, T_seed=-6, CR=1, T_store=-196, WR=400, dilution="step", adhesion="suspension", rock_drug="none"),
     "MSC + ROCK inhibitor":         dict(cpa_key="dmso", conc_pct=10, T_add=22, hold_min=10, add_steps=3, T_seed=-6, CR=1, T_store=-196, WR=400, dilution="step", adhesion="suspension", rock_drug="y27632", rock_conc=10, rock_when="both"),
+    # Directional pre-freeze: a single planar ice front swept across the field
+    # at a fixed velocity on a translational cryostage (controlled nucleation),
+    # then ordinary slow cooling -- the two-step protocol and its 30 um/s
+    # optimum are from Bahari, Bein, Yashunsky & Braslavsky 2018, PLOS ONE
+    # 13(2):e0192265, doi:10.1371/journal.pone.0192265, developed for adherent
+    # monolayers. Applied here to the suspension-cell default for illustration.
+    "MSC + directional pre-freeze (Bahari 2018)":
+        dict(cpa_key="dmso", conc_pct=10, T_add=22, hold_min=10, add_steps=3,
+             T_seed=-6, CR=1, T_store=-196, WR=400, dilution="step",
+             adhesion="suspension", freeze_mode="directional", front_v_um_s=30),
     "Frozen attached, sheared":     dict(cpa_key="dmso", conc_pct=10, T_add=22, hold_min=10, add_steps=3, T_seed=-6, CR=1, T_store=-196, WR=400, dilution="step", adhesion="sheared"),
     "Clinical HSC, infused":        dict(cpa_key="dmso", conc_pct=10, T_add=4,  hold_min=5,  add_steps=1, T_seed=-4, CR=1, T_store=-196, WR=400, dilution="none", adhesion="suspension"),
     "Rapid cool / rapid warm":      dict(cpa_key="dmso", conc_pct=10, T_add=22, hold_min=10, add_steps=1, T_seed=-4, CR=100, T_store=-196, WR=3000, dilution="step"),
@@ -146,6 +156,7 @@ SLIDERS = [
     ("T_add",     "CPA addition temperature",  0,   37,  1,   0, False, " °C"),
     ("hold_min",  "Equilibration hold",        0,   60,  1,   0, False, " min"),
     ("T_seed",    "Ice seeding temperature",  -20,  -1,  0.5, 1, False, " °C"),
+    ("front_v_um_s","Directional front velocity", 2, 100, 1, 0, False, " µm/s"),
     ("CR",        "Cooling rate",             -1,    3,  0.02,2, True,  " °C/min"),
     ("T_store",   "Storage temperature",     -196, -20,  1,   0, False, " °C"),
     ("days",      "Storage time",             -1,    3,  0.05,2, True,  " d"),
@@ -175,6 +186,9 @@ COMBOS = [
     ("cpa_key",  "Cryoprotectant (penetrating)", [(k, v["name"]) for k, v in CPAS.items()]),
     ("additive", "Extracellular additive", [(k, v["name"]) for k, v in ADDITIVES.items()]),
     ("adhesion", "Adhesion state", [(k, v[0]) for k, v in ADHESION_STATES.items()]),
+    ("freeze_mode", "Ice nucleation mode",
+     [("isotropic", "Isotropic (default, instant)"),
+      ("directional", "Directional pre-freeze (cryostage)")]),
     ("add_steps","CPA addition",   [(1, "Single step (bolus)"), (3, "3-step ramp"), (5, "5-step ramp")]),
     ("dilution", "Post-thaw dilution", [("direct", "Direct 1:10 into isotonic"),
                                         ("step", "Stepwise with 0.25 M sucrose"),
@@ -194,6 +208,9 @@ HELP = {
     "cpa_key":  "The permeating cryoprotectant: sets toxicity, glass-forming ability and permeation speed.",
     "additive": "A non-permeating co-solute that stays outside the cell (ice-recrystallisation inhibition, membrane stabilisation).",
     "adhesion": "Cell–cell / matrix state. Junction-coupled states let intracellular ice propagate between cells.",
+    "freeze_mode": "Isotropic: ice nucleates everywhere at once (default). Directional: a single planar "
+                   "front sweeps across at a controlled speed on a translational cryostage, avoiding "
+                   "stochastic multi-site nucleation (Bahari, Bein, Yashunsky & Braslavsky 2018, PLOS ONE).",
     "add_steps":"How the CPA is introduced; more steps reduce osmotic shock during loading.",
     "dilution": "How the CPA is washed out after thaw. Stepwise sucrose limits osmotic swelling; direct risks lysis.",
     "rock_drug":"ROCK-pathway inhibitor that blunts cold-induced blebbing and anoikis.",
@@ -206,6 +223,9 @@ HELP = {
     "T_add":    "Temperature at which the CPA is added; warmer speeds permeation but raises toxicity exposure.",
     "hold_min": "Equilibration time before cooling; longer lets the CPA reach the cell interior.",
     "T_seed":   "Temperature at which extracellular ice is induced. Warmer seeding = less supercooling = gentler freezing.",
+    "front_v_um_s": "Speed of the directional ice front (only used when nucleation mode is Directional). "
+                    "Bahari et al. 2018 found 30 µm/s (~3.8 °C/min) gave the best post-thaw viability for "
+                    "adherent monolayers, ahead of ordinary slow cooling.",
     "CR":       "Cooling rate. The Mazur two-factor optimum: too fast → intracellular ice; too slow → solution injury.",
     "T_store":  "Long-term storage temperature (−196 °C = liquid nitrogen).",
     "days":     "Time held in storage before warming.",
@@ -2085,7 +2105,9 @@ class Main(QMainWindow):
                     t=float(self.S.t[i]),
                     hold_min=float(getattr(self.P, "hold_min", 10.0)),
                     adhesion=getattr(self.P, "adhesion", "suspension"),
-                    r_iso_um=(3 * self.P.Viso / (4 * math.pi)) ** (1 / 3))
+                    r_iso_um=(3 * self.P.Viso / (4 * math.pi)) ** (1 / 3),
+                    front_frac=getattr(S, "front_frac", [1.0] * (i + 1))[i],
+                    freeze_mode=getattr(self.P, "freeze_mode", "isotropic"))
 
     def _show(self, i, jumped=False):
         f = self._frame_dict(i)

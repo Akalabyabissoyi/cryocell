@@ -178,6 +178,20 @@ def mobility(TC, tg_prime=TG_PRIME):
 
 # ------------------------------------------------------- ice field / membrane
 GRAIN_SEED, K_RIPEN = 12.0, 80.0
+# Directional pre-freeze: a controlled, single planar ice front swept across
+# the field at a fixed velocity on a translational cryostage, rather than the
+# default's instantaneous, spatially-uniform nucleation. Bahari, Bein,
+# Yashunsky & Braslavsky 2018, PLOS ONE 13(2):e0192265, doi:10.1371/
+# journal.pone.0192265 -- 30 um/s directional ice growth (~3.8 C/min) gave the
+# best post-thaw viability for adherent monolayers, ahead of ordinary slow
+# cooling; the two-front (crystalline + trailing vitreous) picture used when
+# rendering this is per Qin, Eschenbrenner, Ginot, Dedovets, Coradin, Deville &
+# Fernandes 2020, J. Phys. Chem. Lett., doi:10.1021/acs.jpclett.0c01729.
+# FRONT_SWEEP_UM itself is NOT from either paper -- it is this project's own
+# choice of how far, in local field-of-view terms, the front has to travel
+# past a single cell before the sweep is "done" and the view reverts to the
+# ordinary isotropic closing-in field (which is unaffected by this feature).
+FRONT_SWEEP_UM = 120.0
 def ripen_rate(TC, mob, iri):
     return K_RIPEN * math.exp(-max(0.0, -TC) / 18.0) * mob * (1 - clamp(iri, 0, 0.98))
 def channel_width(grain, f_ice):
@@ -324,6 +338,9 @@ class Params:
     k_atp: float = ATP_TURNOVER
     v_crit_lo: float = 0.45
     v_crit_hi: float = 1.45
+    # --- directional pre-freeze (see FRONT_SWEEP_UM above for citations)
+    freeze_mode: str = "isotropic"    # isotropic | directional
+    front_v_um_s: float = 30.0        # um/s; 30 was Bahari et al. 2018's optimum
 
     def molar(self):
         c = CPAS[self.cpa_key]
@@ -342,7 +359,8 @@ class Series:
     KEYS = ("t T V Vn Vmito Vnuc Cin Cout Osme dTsc dPsi caCyt caER x pore mpt "
             "Dosm Dtox Dmem Dmech Piif frag fIce grain chanW squeeze gel fluid "
             "thick APL tension msOpen mt actin atp FA rock pMLC bleb yapN casp3 "
-            "apop necr piezo akt glass mcpa Pmito prot intf sigMT sigIF ros").split()
+            "apop necr piezo akt glass mcpa Pmito prot intf sigMT sigIF ros "
+            "front_frac").split()
     def __init__(self):
         for k in self.KEYS: setattr(self, k, [])
         self.phase, self.events = [], []
@@ -423,6 +441,7 @@ def simulate(P: Params):
     # ice field
     grain = grain_prev = grain_max = GRAIN_SEED
     f_ice = 0.0; chanW = 1e4; squeeze = squeeze_min = 8.0; D_recry_ice = 0.0
+    front_frac = 0.0 if P.freeze_mode == "directional" else 1.0
 
     # membrane / mechanics
     memb = dict(xe=0, APL=1, thick=1, Tm=-8, gel=0, fluid=1, domainLeak=0)
@@ -487,7 +506,7 @@ def simulate(P: Params):
                     actin=actin, atp=atp, FA=FA, rock=rock, pMLC=pMLC, bleb=bleb,
                     yapN=yapN, casp3=casp3, apop=apop, necr=necr, piezo=piezo, akt=akt,
                     glass=clamp(1.0 - last_mob, 0, 1), mcpa=mcpa, Pmito=P_mito, prot=prot,
-                    intf=if_i, sigMT=sig_mt, sigIF=sig_if, ros=ros)
+                    intf=if_i, sigMT=sig_mt, sigIF=sig_if, ros=ros, front_frac=front_frac)
         for k, v in vals.items(): getattr(out, k).append(v)
         out.phase.append(phase)
 
@@ -496,7 +515,7 @@ def simulate(P: Params):
         nonlocal n_mtx, mpt_frac, dPsi, chrom_cond, lobulation, caER, caCyt
         nonlocal D_osm, D_tox, D_mem, P_iif, D_recry, D_frag, D_swell, D_sol
         nonlocal D_mech, D_energy, minV, maxV, ice_vol, grain, grain_prev
-        nonlocal grain_max, f_ice, chanW, squeeze, squeeze_min, D_recry_ice
+        nonlocal grain_max, f_ice, chanW, squeeze, squeeze_min, D_recry_ice, front_frac
         nonlocal memb, tension, ms_open, mt_i, actin, atp, atp_min, atp_prod
         nonlocal FA, piezo, rhoGTP, rock, pMLC, bleb, yapN, casp8, casp9, casp3
         nonlocal calpain, akt, apop, necr, rock_peak, bleb_peak, casp3_peak
@@ -521,6 +540,8 @@ def simulate(P: Params):
             e_add = e_add0 * cf
             ice_vol = 1 - 1 / cf
             f_ice = ice_vol
+            if P.freeze_mode == "directional" and front_frac < 1.0:
+                front_frac = clamp(front_frac + (P.front_v_um_s * dt) / FRONT_SWEEP_UM, 0.0, 1.0)
             iri = 0.0 if KO.get("iri") else clamp(P.iri / 100.0 + cpa["iri"] + add_iri, 0, 0.98)
             kr = ripen_rate(T_C, mob, iri) * (P.k_ripen / K_RIPEN)
             if kr > 0:

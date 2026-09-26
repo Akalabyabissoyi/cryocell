@@ -605,6 +605,51 @@ class CellView(QWidget):
                     q.setPen(Qt.PenStyle.NoPen); q.setBrush(QColor(255, 255, 255, 200))
                     r_tip = max(0.9, 1.1 * min(Z, 2.0))
                     q.drawEllipse(ptip, r_tip, r_tip)
+            # ---- directional pre-freeze: a single planar front sweeping across
+            # the field, per Bahari, Bein, Yashunsky & Braslavsky 2018 (PLOS ONE
+            # 13(2):e0192265) -- everything above this point already drew the
+            # eventual, fully-nucleated ice field; while the sweep is still in
+            # progress (0 < front_frac < 1) we mask the not-yet-reached half
+            # back to plain background and draw the crystallisation front, plus
+            # a trailing vitreous (glass-transition) front per Qin, Eschenbrenner,
+            # Ginot, Dedovets, Coradin, Deville & Fernandes 2020 (J. Phys. Chem.
+            # Lett., doi:10.1021/acs.jpclett.0c01729) -- reusing this frame's
+            # existing `glass` mobility signal rather than a new thermodynamic
+            # curve: at glass=0 the vitreous front lags far behind the ice
+            # front (residual brine still fluid); as glass -> 1 it catches up.
+            front_frac = f.get("front_frac", 1.0)
+            if 0.001 < front_frac < 0.999:
+                orient = self.ice.orient
+                nx, ny = math.cos(orient), math.sin(orient)
+                tx2, ty2 = -ny, nx
+                front_s = -extent + 2.0 * extent * front_frac
+                L = extent * 3.0
+                def _rect(s_lo, s_hi):
+                    corners = [(s_lo * nx - L * tx2, s_lo * ny - L * ty2),
+                              (s_lo * nx + L * tx2, s_lo * ny + L * ty2),
+                              (s_hi * nx + L * tx2, s_hi * ny + L * ty2),
+                              (s_hi * nx - L * tx2, s_hi * ny - L * ty2)]
+                    return QPolygonF([S(x, y) for x, y in corners])
+                q.setPen(Qt.PenStyle.NoPen); q.setBrush(col("surface0"))
+                q.drawPolygon(_rect(front_s, front_s + 2.0 * L))
+                # crystallisation front: a bright glinting line with a soft glow
+                p_lo, p_hi = S(front_s * nx - L * tx2, front_s * ny - L * ty2), \
+                            S(front_s * nx + L * tx2, front_s * ny + L * ty2)
+                q.setPen(QPen(QColor(255, 255, 255, 90), max(3.0, 4.0 * min(Z, 2.0))))
+                q.drawLine(p_lo, p_hi)
+                q.setPen(QPen(col("ice", 235), max(1.2, 1.6 * min(Z, 2.0))))
+                q.drawLine(p_lo, p_hi)
+                # trailing vitreous front (fainter, cooler, lags behind by how far
+                # the residual liquor still is from its own glass transition)
+                glass = f.get("glass", 0.0)
+                lag = (1.0 - glass) * extent * 0.35
+                vs = front_s - lag
+                if vs > -extent:
+                    v_lo = S(vs * nx - L * tx2, vs * ny - L * ty2)
+                    v_hi = S(vs * nx + L * tx2, vs * ny + L * ty2)
+                    q.setPen(QPen(QColor(225, 240, 250, 140), max(0.8, 1.0 * min(Z, 2.0)),
+                                 Qt.PenStyle.DashLine))
+                    q.drawLine(v_lo, v_hi)
             q.restore()
         else:
             # subtle cell shadow — kept dark in AIDO mode so it blends into the ground

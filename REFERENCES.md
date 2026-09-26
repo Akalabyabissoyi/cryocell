@@ -463,3 +463,45 @@ Both are UI only; the model and the 35.4% benchmark are untouched.
   low-glycerol; cell lines as typical ranges), colour-coded by gap, so the
   honest agreement and the gaps (e.g. under-prediction of robust cancer lines)
   are visible rather than hidden.
+
+## Q. Directional pre-freeze (controlled nucleation, two-front picture)
+
+**Was:** ice nucleation ("seed" phase) was instantaneous and spatially uniform
+— `ice` flips True in one step, with no representation of *how* a real
+cryostage actually nucleates a sample.
+
+**Now:**
+- **Directional nucleation mode** (`Params.freeze_mode = "directional"`, vs the
+  default `"isotropic"`): a single planar ice front is swept across the field
+  at a controlled, user-set velocity (`front_v_um_s`, default 30 µm/s) instead
+  of nucleating everywhere at once, avoiding stochastic multi-site nucleation.
+  - Bahari L, Bein A, Yashunsky V, Braslavsky I (2018) *Directional freezing
+    for the cryopreservation of adherent mammalian cells on a substrate.*
+    PLOS ONE 13(2):e0192265. doi:10.1371/journal.pone.0192265 — a translational
+    cryostage sweeping a directional ice front at 30 µm/s (~3.8 °C/min), then
+    ordinary slow cooling to −80 °C, maximised post-thaw viability of adherent
+    monolayers versus slow cooling alone. `front_v_um_s` defaults to their
+    reported optimum; the model exposes it as an adjustable parameter, not a
+    fixed constant, since the optimum is substrate/cell-type specific.
+  - Rendered as a moving crystallisation front plus a fainter, trailing
+    **vitreous (glass-transition) front** — the two-front picture from Qin K,
+    Eschenbrenner C, Ginot F, Dedovets D, Coradin T, Deville S, Fernandes FM
+    (2020) *Unveiling cells' local environment during cryopreservation by
+    correlative in situ spatial and thermal analyses.* J Phys Chem Lett.
+    doi:10.1021/acs.jpclett.0c01729 — a cell's local environment during
+    directional freezing is set by two moving boundaries, not one: the ice
+    front, and a trailing front where the residual freeze-concentrated liquor
+    itself vitrifies. The vitreous front's lag behind the ice front reuses
+    this frame's existing bulk mobility/vitrification signal (`glass`, from
+    the WLF mobility already computed for the intracellular sheen) rather
+    than inventing a second thermodynamic curve — no new physics, only a new
+    interpretation of an existing scalar for this rendering.
+- **Provenance:** the sweep-completion distance (`FRONT_SWEEP_UM = 120`, how
+  far the front travels in local field-of-view terms before the view reverts
+  to the ordinary isotropic closing-in field) is this project's own choice,
+  not from either paper — documented as such in `model.py`. The mechanical
+  confinement of the cell (`IceField.pocket_radius`) is unchanged by this
+  mode: directional pre-freeze only controls *nucleation*, matching Bahari et
+  al.'s two-step protocol (directional freeze, then conventional slow
+  cooling), so the eventual ice jacket geometry is identical to isotropic mode
+  once the front has passed.
