@@ -505,3 +505,33 @@ cryostage actually nucleates a sample.
   al.'s two-step protocol (directional freeze, then conventional slow
   cooling), so the eventual ice jacket geometry is identical to isotropic mode
   once the front has passed.
+- **Local solute pile-up ahead of the front** (added after review — the first
+  version of this feature moved the ice/liquid boundary but left the
+  extracellular composition spatially uniform, which understates Qin et al.
+  2020's actual central finding). Qin et al. 2020 (above) show, by correlative
+  in situ imaging, that a cell's local solution environment concentrates
+  *faster than the bulk average* as the front approaches: solute is rejected
+  by the growing ice and piles up in the shrinking liquid pocket at the
+  interface before the far-field bulk reaches that same concentration. This is
+  the classical solute boundary-layer effect at a moving solidification front:
+  - Burton JA, Prim RC, Slichter WP (1953) *The Distribution of Solute in
+    Crystals Grown from the Melt. Part I. Theoretical.* J Chem Phys 21(11):1987.
+    Effective interface concentration Ceff = C0/(k + (1−k)·exp(−vδ/D)); as the
+    ice/solute partition coefficient k → 0 (ice excludes solute almost
+    completely), Ceff grows with front velocity v because rejected solute has
+    less time to diffuse away before being overtaken.
+  - Implemented as `FRONT_CONC_BOOST_MAX` (model.py): the extracellular solute
+    terms (`e_s, e_c, e_f, e_suc, e_add`) are multiplied by a transient
+    `local_boost`, a bump in `front_frac` peaking at 0.5 (where the drawn
+    front line crosses the cell) and scaled up with `front_v_um_s` in the
+    direction Burton-Prim-Slichter predicts. **This is NOT a solved
+    boundary-layer equation** — the project has no measured boundary-layer
+    thickness δ or solute diffusivity D for this medium, so `local_boost` is
+    an explicitly simplified, order-of-magnitude stand-in, documented as such
+    in `model.py`. It does feed the same extracellular-composition variables
+    the Kedem–Katchalsky transport equations already consume, so directional
+    mode can now show a real, if approximate, transient osmotic consequence of
+    front passage — not just a different picture. Isotropic mode is
+    unaffected (`concBoost` stays pinned at 1.0 throughout — verified by
+    regression check); the boost is surfaced on the "Extracellular ice"
+    label as "local pile-up ×N" whenever it exceeds 1.05.

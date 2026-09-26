@@ -192,6 +192,29 @@ GRAIN_SEED, K_RIPEN = 12.0, 80.0
 # past a single cell before the sweep is "done" and the view reverts to the
 # ordinary isotropic closing-in field (which is unaffected by this feature).
 FRONT_SWEEP_UM = 120.0
+# Directional freezing does NOT just move the ice/liquid boundary -- Qin,
+# Eschenbrenner, Ginot, Dedovets, Coradin, Deville & Fernandes 2020 (J. Phys.
+# Chem. Lett., doi:10.1021/acs.jpclett.0c01729) show, by correlative in situ
+# spatial + thermal imaging, that a cell's local solution environment
+# concentrates FASTER than the bulk average as the front approaches: solute
+# is rejected by the growing ice (ice excludes solutes almost completely) and
+# piles up in the shrinking liquid pocket right at the interface, well before
+# the far-field bulk reaches that same concentration. This is the classical
+# solute boundary-layer effect at a moving solidification front (Burton,
+# Prim & Slichter 1953, J. Chem. Phys. 21(11):1987 -- effective interface
+# concentration Ceff = C0/(k+(1-k)*exp(-v*delta/D)); as the ice-solute
+# partition coefficient k -> 0, Ceff grows with front velocity v because a
+# faster front gives rejected solute less time to diffuse away).
+# FRONT_CONC_BOOST_MAX is NOT a solved Burton-Prim-Slichter boundary layer --
+# this project has no measured boundary-layer thickness (delta) or solute
+# diffusivity (D) for this medium, so it stands in for that solve as a
+# simplified, order-of-magnitude local concentration multiplier, scaled by
+# front velocity in the same direction the theory predicts (faster front ->
+# bigger local pile-up) and applied only transiently while the front is
+# passing the cell's position (front_frac near 0.5, where the drawn front
+# line crosses the origin) -- not a permanent change to the bulk thermodynamics,
+# which is unaffected and identical to isotropic mode once the sweep ends.
+FRONT_CONC_BOOST_MAX = 1.8   # multiplier at the reference 30 um/s, at peak proximity
 def ripen_rate(TC, mob, iri):
     return K_RIPEN * math.exp(-max(0.0, -TC) / 18.0) * mob * (1 - clamp(iri, 0, 0.98))
 def channel_width(grain, f_ice):
@@ -360,7 +383,7 @@ class Series:
             "Dosm Dtox Dmem Dmech Piif frag fIce grain chanW squeeze gel fluid "
             "thick APL tension msOpen mt actin atp FA rock pMLC bleb yapN casp3 "
             "apop necr piezo akt glass mcpa Pmito prot intf sigMT sigIF ros "
-            "front_frac").split()
+            "front_frac concBoost").split()
     def __init__(self):
         for k in self.KEYS: setattr(self, k, [])
         self.phase, self.events = [], []
@@ -442,6 +465,7 @@ def simulate(P: Params):
     grain = grain_prev = grain_max = GRAIN_SEED
     f_ice = 0.0; chanW = 1e4; squeeze = squeeze_min = 8.0; D_recry_ice = 0.0
     front_frac = 0.0 if P.freeze_mode == "directional" else 1.0
+    local_boost = 1.0
 
     # membrane / mechanics
     memb = dict(xe=0, APL=1, thick=1, Tm=-8, gel=0, fluid=1, domainLeak=0)
@@ -506,7 +530,8 @@ def simulate(P: Params):
                     actin=actin, atp=atp, FA=FA, rock=rock, pMLC=pMLC, bleb=bleb,
                     yapN=yapN, casp3=casp3, apop=apop, necr=necr, piezo=piezo, akt=akt,
                     glass=clamp(1.0 - last_mob, 0, 1), mcpa=mcpa, Pmito=P_mito, prot=prot,
-                    intf=if_i, sigMT=sig_mt, sigIF=sig_if, ros=ros, front_frac=front_frac)
+                    intf=if_i, sigMT=sig_mt, sigIF=sig_if, ros=ros, front_frac=front_frac,
+                    concBoost=local_boost)
         for k, v in vals.items(): getattr(out, k).append(v)
         out.phase.append(phase)
 
@@ -515,7 +540,7 @@ def simulate(P: Params):
         nonlocal n_mtx, mpt_frac, dPsi, chrom_cond, lobulation, caER, caCyt
         nonlocal D_osm, D_tox, D_mem, P_iif, D_recry, D_frag, D_swell, D_sol
         nonlocal D_mech, D_energy, minV, maxV, ice_vol, grain, grain_prev
-        nonlocal grain_max, f_ice, chanW, squeeze, squeeze_min, D_recry_ice, front_frac
+        nonlocal grain_max, f_ice, chanW, squeeze, squeeze_min, D_recry_ice, front_frac, local_boost
         nonlocal memb, tension, ms_open, mt_i, actin, atp, atp_min, atp_prod
         nonlocal FA, piezo, rhoGTP, rock, pMLC, bleb, yapN, casp8, casp9, casp3
         nonlocal calpain, akt, apop, necr, rock_peak, bleb_peak, casp3_peak
@@ -530,18 +555,30 @@ def simulate(P: Params):
 
         # ---- extracellular composition + ice field
         if ice:
+            if P.freeze_mode == "directional" and front_frac < 1.0:
+                front_frac = clamp(front_frac + (P.front_v_um_s * dt) / FRONT_SWEEP_UM, 0.0, 1.0)
+            # local solute pile-up ahead of the moving front (see
+            # FRONT_CONC_BOOST_MAX above): a transient bump peaking as the
+            # front passes the cell's position (front_frac = 0.5, matching
+            # where the drawn front line crosses the origin), scaled up for a
+            # faster front per Burton-Prim-Slichter, and back to 1x (no local
+            # effect -- bulk thermodynamics only) once the sweep is done.
+            if P.freeze_mode == "directional" and 0.0 < front_frac < 1.0:
+                prox = 4.0 * front_frac * (1.0 - front_frac)
+                vel_factor = clamp(P.front_v_um_s / 30.0, 0.15, 4.0)
+                local_boost = 1.0 + (FRONT_CONC_BOOST_MAX - 1.0) * prox * vel_factor
+            else:
+                local_boost = 1.0
             osm_tot = osm_from_dT(min(-T_C, -teut_run), B_eff)
             osm0 = salt_e0 + eCPA0 + e_suc0 + e_add0
             cf = max(1.0, osm_tot / max(osm0, 1e-6))
-            e_s = salt_e0 * cf
-            e_c = eCPA0 * cf * frac_intact
-            e_f = eCPA0 * cf * (1 - frac_intact) * P.frag_n
-            e_suc = e_suc0 * cf
-            e_add = e_add0 * cf
+            e_s = salt_e0 * cf * local_boost
+            e_c = eCPA0 * cf * frac_intact * local_boost
+            e_f = eCPA0 * cf * (1 - frac_intact) * P.frag_n * local_boost
+            e_suc = e_suc0 * cf * local_boost
+            e_add = e_add0 * cf * local_boost
             ice_vol = 1 - 1 / cf
             f_ice = ice_vol
-            if P.freeze_mode == "directional" and front_frac < 1.0:
-                front_frac = clamp(front_frac + (P.front_v_um_s * dt) / FRONT_SWEEP_UM, 0.0, 1.0)
             iri = 0.0 if KO.get("iri") else clamp(P.iri / 100.0 + cpa["iri"] + add_iri, 0, 0.98)
             kr = ripen_rate(T_C, mob, iri) * (P.k_ripen / K_RIPEN)
             if kr > 0:

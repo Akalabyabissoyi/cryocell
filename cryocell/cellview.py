@@ -1443,9 +1443,15 @@ class CellView(QWidget):
         # extracellular ice (outside, when frozen)
         if self.ice.active:
             ax, ay = cx + Rs * d + 30, cy - Rs * d - 20
-            label(ax, ay, w - 4, 74,
-                  ["Extracellular ice", f"{f['fIce']*100:.0f}% frozen · {f['Osme']:.1f} osmol/L",
-                   f"grain {f['grain']:.0f} µm"], "ice")
+            lines = ["Extracellular ice",
+                    f"{f['fIce']*100:.0f}% frozen · {f['Osme']:.1f} osmol/L",
+                    f"grain {f['grain']:.0f} µm"]
+            # local solute pile-up as the directional front passes (Qin,
+            # Eschenbrenner, Ginot, Dedovets, Coradin, Deville & Fernandes 2020)
+            cb = f.get("concBoost", 1.0)
+            if cb > 1.05:
+                lines.append(f"local pile-up ×{cb:.1f} (front passing)")
+            label(ax, ay, w - 4, 74 + (18 if cb > 1.05 else 0), lines, "ice")
 
         # ---- compact legend (bottom-right)
         leg = [("Nucleus", "nucleus"), ("Mitochondria", "mito"), ("ER", "er"),

@@ -2107,7 +2107,8 @@ class Main(QMainWindow):
                     adhesion=getattr(self.P, "adhesion", "suspension"),
                     r_iso_um=(3 * self.P.Viso / (4 * math.pi)) ** (1 / 3),
                     front_frac=getattr(S, "front_frac", [1.0] * (i + 1))[i],
-                    freeze_mode=getattr(self.P, "freeze_mode", "isotropic"))
+                    freeze_mode=getattr(self.P, "freeze_mode", "isotropic"),
+                    concBoost=getattr(S, "concBoost", [1.0] * (i + 1))[i])
 
     def _show(self, i, jumped=False):
         f = self._frame_dict(i)
