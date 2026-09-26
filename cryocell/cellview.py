@@ -15,7 +15,7 @@ import math
 import numpy as np
 from PyQt6.QtCore import Qt, QPointF, QRectF, pyqtSignal, QTimer
 from PyQt6.QtGui import (QPainter, QPen, QBrush, QColor, QPainterPath,
-                         QRadialGradient, QFont, QPolygonF, QPixmap)
+                         QRadialGradient, QLinearGradient, QFont, QPolygonF, QPixmap)
 from PyQt6.QtWidgets import QWidget
 
 from .softbody import SoftBody
@@ -493,39 +493,84 @@ class CellView(QWidget):
             q.save()
             q.setPen(Qt.PenStyle.NoPen)
             ice_base = col("ice")
-            shade0 = QColor(ice_base); shade0.setAlpha(int(55 + 120 * f["fIce"]))
+            fice = f["fIce"]
+            shade0 = QColor(ice_base); shade0.setAlpha(int(35 + 65 * fice))
             q.fillRect(self.rect(), shade0)
             extent = max(self.width(), self.height()) / max(Z, 1e-3)
             cells = self.ice.grain_cells(extent)
+            h0, s0, v0, _a0 = ice_base.getHsvF()
+            if h0 < 0:
+                h0 = 0.58                          # achromatic base -> fall back to icy blue
+            # one light direction (upper-left), matching the cytoplasm gradient's
+            # own convention elsewhere in this file, so every facet glints
+            # consistently -- a polycrystal under one light, not independently
+            # lit shapes -- rather than a flat diagram wash.
+            lx, ly = -0.42, -0.55
             for poly, sh in cells:
-                cc = QColor(ice_base)
-                cc.setAlpha(int(50 + 90 * f["fIce"] * (0.45 + 0.55 * sh)))
-                q.setBrush(cc); q.setPen(Qt.PenStyle.NoPen)
-                q.drawPolygon(QPolygonF([S(x, y) for x, y in poly]))
-            q.setPen(QPen(col("surface2", 230), max(1.0, 1.3 * min(Z, 2.0))))
+                pts = [S(x, y) for x, y in poly]
+                cx = sum(p.x() for p in pts) / len(pts)
+                cy = sum(p.y() for p in pts) / len(pts)
+                rad = max(8.0, max(math.hypot(p.x() - cx, p.y() - cy) for p in pts))
+                # per-grain value/saturation variation: real polycrystalline ice
+                # shows facet-to-facet brightness variety, not a flat wash.
+                v2 = min(1.0, v0 * (0.68 + 0.55 * sh))
+                s2 = max(0.0, s0 * (0.5 + 0.5 * (1.0 - sh)))
+                grain_col = QColor.fromHsvF((h0 + 0.015 * (sh - 0.5)) % 1.0, s2, v2)
+                grain_col.setAlpha(int(75 + 150 * fice * (0.4 + 0.6 * sh)))
+                g = QRadialGradient(QPointF(cx + lx * rad, cy + ly * rad), rad * 1.6)
+                hi = QColor(255, 255, 255, int(120 * fice * (0.3 + 0.7 * sh)))
+                g.setColorAt(0.0, hi)
+                g.setColorAt(0.45, grain_col)
+                g.setColorAt(1.0, grain_col.darker(128))
+                q.setBrush(QBrush(g)); q.setPen(Qt.PenStyle.NoPen)
+                q.drawPolygon(QPolygonF(pts))
+            # grain-boundary grooves: a dark incised line plus a thin bright
+            # edge on the light-facing side, so a boundary reads as physical
+            # relief where two crystals met, not a line drawn over a diagram.
             for v1, v2 in self.ice.grain_boundaries(extent):
-                q.drawLine(S(v1[0], v1[1]), S(v2[0], v2[1]))
+                p1, p2 = S(v1[0], v1[1]), S(v2[0], v2[1])
+                q.setPen(QPen(QColor(30, 42, 54, int(70 + 90 * fice)),
+                              max(1.2, 1.4 * min(Z, 2.0))))
+                q.drawLine(p1, p2)
+                dx, dy = p2.x() - p1.x(), p2.y() - p1.y()
+                ln = math.hypot(dx, dy) or 1.0
+                ox, oy = -dy / ln, dx / ln
+                q.setPen(QPen(QColor(255, 255, 255, int(70 + 60 * fice)),
+                              max(0.5, 0.7 * min(Z, 2.0))))
+                q.drawLine(QPointF(p1.x() + ox, p1.y() + oy),
+                          QPointF(p2.x() + ox, p2.y() + oy))
             # punch out the unfrozen pocket
             pts, _th, _r = self.ice.polygon(240)
             poly = QPolygonF([S(x, y) for x, y in pts])
             q.setBrush(col("surface1")); q.setPen(QPen(col("ice"), 2.0)); q.drawPolygon(poly)
             # cryo-stage look: dendritic ice fingers growing inward from the
-            # freezing front into the unfrozen channel (directional solidification)
+            # freezing front into the unfrozen channel (directional solidification).
+            # Each needle now has a gradient stroke (dim base -> bright tip) and a
+            # small glint at the tip, so it reads as a glinting ice crystal rather
+            # than a plain drawn line.
             if self.sci:
-                q.setPen(QPen(col("ice", 210), max(0.8, 1.0 * min(Z, 2.0))))
                 npts = len(pts)
                 for i in range(0, npts, 5):
                     x0, y0 = pts[i]
                     rr = math.hypot(x0, y0) or 1e-6
                     ix, iy = -x0 / rr, -y0 / rr                    # inward normal
                     tx, ty = -iy, ix                               # tangent
-                    spike = (6 + 10 * f["fIce"]) * (0.6 + 0.4 * math.sin(i * 1.7))
+                    spike = (6 + 10 * fice) * (0.6 + 0.4 * math.sin(i * 1.7))
                     tipx, tipy = x0 + ix * spike, y0 + iy * spike
-                    q.drawLine(S(x0, y0), S(tipx, tipy))           # primary dendrite
+                    p0, ptip = S(x0, y0), S(tipx, tipy)
+                    grad = QLinearGradient(p0, ptip)
+                    grad.setColorAt(0.0, col("ice", 90))
+                    grad.setColorAt(1.0, QColor(255, 255, 255, 235))
+                    q.setPen(QPen(QBrush(grad), max(0.8, 1.0 * min(Z, 2.0))))
+                    q.drawLine(p0, ptip)                           # primary dendrite
                     for s in (-1, 1):                              # side branches
                         bx = x0 + ix * spike * 0.5 + tx * s * spike * 0.28
                         by = y0 + iy * spike * 0.5 + ty * s * spike * 0.28
-                        q.drawLine(S(x0 + ix * spike * 0.5, y0 + iy * spike * 0.5), S(bx, by))
+                        pmid = S(x0 + ix * spike * 0.5, y0 + iy * spike * 0.5)
+                        q.drawLine(pmid, S(bx, by))
+                    q.setPen(Qt.PenStyle.NoPen); q.setBrush(QColor(255, 255, 255, 200))
+                    r_tip = max(0.9, 1.1 * min(Z, 2.0))
+                    q.drawEllipse(ptip, r_tip, r_tip)
             q.restore()
         else:
             # subtle cell shadow — kept dark in AIDO mode so it blends into the ground
