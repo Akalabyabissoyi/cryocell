@@ -524,6 +524,22 @@ class CellView(QWidget):
                 g.setColorAt(1.0, grain_col.darker(128))
                 q.setBrush(QBrush(g)); q.setPen(Qt.PenStyle.NoPen)
                 q.drawPolygon(QPolygonF(pts))
+                # frost sparkle: a couple of bright flecks per grain, placed from
+                # the polygon's own vertices (deterministic, so they hold still
+                # frame to frame instead of flickering) and brighter on more-
+                # frozen, higher-shade grains -- the crystalline glint real ice
+                # shows under light, which a flat fill can't give you.
+                if fice > 0.15 and len(pts) >= 3:
+                    n = len(pts)
+                    for k, frac in ((n // 3, 0.55), (2 * n // 3, 0.35)):
+                        vx, vy = pts[k].x(), pts[k].y()
+                        a = int(150 * fice * sh)
+                        if a > 12:
+                            spx, spy = cx + (vx - cx) * frac, cy + (vy - cy) * frac
+                            q.setPen(Qt.PenStyle.NoPen)
+                            q.setBrush(QColor(255, 255, 255, a))
+                            r = max(0.6, 0.9 * min(Z, 2.0))
+                            q.drawEllipse(QPointF(spx, spy), r, r)
             # grain-boundary grooves: a dark incised line plus a thin bright
             # edge on the light-facing side, so a boundary reads as physical
             # relief where two crystals met, not a line drawn over a diagram.
@@ -539,10 +555,28 @@ class CellView(QWidget):
                               max(0.5, 0.7 * min(Z, 2.0))))
                 q.drawLine(QPointF(p1.x() + ox, p1.y() + oy),
                           QPointF(p2.x() + ox, p2.y() + oy))
-            # punch out the unfrozen pocket
+            # punch out the unfrozen pocket -- a thin brine film the cell sits
+            # in, so give it a wet radial gradient (lit from the same upper-left
+            # direction as the grains, slightly cooler toward the ice rim)
+            # instead of one flat matte fill, plus a two-pass rim -- a soft dark
+            # groove behind a crisp bright edge -- so the ice/liquid interface
+            # reads as a meniscus with depth rather than a single flat outline.
             pts, _th, _r = self.ice.polygon(240)
-            poly = QPolygonF([S(x, y) for x, y in pts])
-            q.setBrush(col("surface1")); q.setPen(QPen(col("ice"), 2.0)); q.drawPolygon(poly)
+            spts = [S(x, y) for x, y in pts]
+            poly = QPolygonF(spts)
+            pr = max(20.0, max(math.hypot(p.x(), p.y()) for p in spts))
+            c0 = S(0.0, 0.0)
+            surf1 = col("surface1")
+            wg = QRadialGradient(QPointF(c0.x() + lx * pr * 0.3, c0.y() + ly * pr * 0.3), pr * 1.15)
+            wg.setColorAt(0.0, surf1.lighter(107))
+            wg.setColorAt(0.7, surf1)
+            wg.setColorAt(1.0, QColor(ice_base.red(), ice_base.green(), ice_base.blue(), 45))
+            q.setBrush(QBrush(wg)); q.setPen(Qt.PenStyle.NoPen); q.drawPolygon(poly)
+            q.setBrush(Qt.BrushStyle.NoBrush)
+            q.setPen(QPen(QColor(20, 42, 60, 110), max(1.6, 1.9 * min(Z, 2.0))))
+            q.drawPolygon(poly)
+            q.setPen(QPen(col("ice", 210), max(0.7, 0.9 * min(Z, 2.0))))
+            q.drawPolygon(poly)
             # cryo-stage look: dendritic ice fingers growing inward from the
             # freezing front into the unfrozen channel (directional solidification).
             # Each needle now has a gradient stroke (dim base -> bright tip) and a
