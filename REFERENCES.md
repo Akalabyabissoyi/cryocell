@@ -535,3 +535,44 @@ cryostage actually nucleates a sample.
     unaffected (`concBoost` stays pinned at 1.0 throughout — verified by
     regression check); the boost is surfaced on the "Extracellular ice"
     label as "local pile-up ×N" whenever it exceeds 1.05.
+
+## R. Per-grain ice contact (mesh-physics-adjacent, scoped)
+
+**Was:** membrane confinement by the ice used one smoothed, globally-radial
+function (`IceField.pocket_radius(theta)`) — physically reasonable and kept
+as-is (see below), but it always pushes a membrane vertex straight toward the
+shared cell centre, never toward or away from whichever specific ice grain is
+actually nearest. A cell squeezed between two adjacent grains and one
+squeezed by ice uniformly on all sides looked mechanically identical.
+
+**Now:** `SoftBody.step()` takes an additional `grains=(centres, radii)`
+argument -- each ice grain's own disc (already computed by `IceField` for the
+Voronoi tessellation) is treated as a separate rigid contact body. A membrane
+vertex that overlaps a grain's disc is pushed out along *that grain's own*
+radial direction (vertex minus that grain's centre), not toward the shared
+cell centre. This is **additive to, not a replacement for,** the existing
+`pocket_radius` envelope, which stays exactly as it was and remains the
+robustness backstop (always bounded, even in an angular gap with no nearby
+grain) -- so the calibrated overall squeeze/mechanical-damage magnitude
+(`D_mech`, `squeeze`) is unchanged; this only adds local directional detail on
+top of it.
+
+**Verified, not just asserted:** a controlled numerical test (fixed grain
+layout, otherwise-identical membrane, with vs. without the new term) shows a
+genuinely LOCAL effect -- mean vertex-position shift ≈0, but real per-vertex
+spread (std ≈0.36 px, max ≈1.7 px on a 110 px-radius test membrane) -- i.e.
+some vertices pushed further out and others pulled further in relative to the
+old uniform-radial result, not a uniform rescale that a stiffness-constant
+change could have produced instead. The effect's visual size is expected, by
+the same geometry, to scale with grain size relative to the cell: a grain much
+larger than the cell looks locally near-flat against it (subtle facet), while
+a grain comparable in size to the cell produces a more visible local dent.
+
+**Scope note:** this was deliberately chosen over a full interior/organelle
+FEM mesh (raised by a request to add "mesh physics ... like [a surgical soft-
+tissue simulator reference]") specifically because it is additive and
+low-risk: the existing boundary-ring membrane mechanics, already validated
+against the calibration anchors this file opens with, are untouched. A full
+volumetric mesh replacing the organelle-positioning/membrane model would be a
+substantially larger undertaking with real re-validation cost, and was
+explicitly deferred pending a decision on that trade-off.

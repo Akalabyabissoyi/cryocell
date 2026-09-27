@@ -55,7 +55,7 @@ class SoftBody:
         return self.radii()[np.argmin(d, axis=1)]
 
     def step(self, L0, kT, kB, kP, A_target, damp, slack,
-             k_cortex=0.0, pocket_r=None, crystals=None, noise=0.0,
+             k_cortex=0.0, pocket_r=None, grains=None, crystals=None, noise=0.0,
              external=None):
         n = self.n
         p = self.p
@@ -121,7 +121,10 @@ class SoftBody:
                 if m.any():
                     F[m] += ((cr - dist[m]) * 1.4 / dist[m])[:, None] * d[m]
 
-        # confinement by the unfrozen pocket, from every direction
+        # confinement by the unfrozen pocket, from every direction. This is a
+        # SMOOTHED envelope (always bounded, even where no grain sits along a
+        # given ray) -- kept as the robustness backstop so the membrane can
+        # never escape confinement in an angular gap between grains.
         if pocket_r is not None:
             ang = np.arctan2(p[:, 1], p[:, 0])
             lim = pocket_r(ang)
@@ -130,6 +133,29 @@ class SoftBody:
             m = over > 0
             if m.any():
                 F[m] -= (0.55 * over[m] / rad[m])[:, None] * p[m]
+
+        # per-grain contact: each ice grain is its own rigid disc (centre, r),
+        # so a vertex overlapping one is pushed out along THAT grain's own
+        # radial direction, not toward the shared cell centre. Unlike the
+        # smoothed pocket_r envelope above, this makes the membrane pinch
+        # locally to whichever specific grains are actually nearby -- a cell
+        # squeezed between two adjacent grains facets around them, rather than
+        # compressing uniformly from every direction at once. Additive to
+        # (not a replacement for) the envelope backstop above.
+        if grains is not None:
+            centres, gradii = grains
+            if len(centres):
+                d = p[:, None, :] - centres[None, :, :]            # (n, G, 2)
+                dist = np.hypot(d[..., 0], d[..., 1])
+                dist[dist < 1e-6] = 1e-6
+                pen = gradii[None, :] - dist                       # >0 = inside that grain
+                worst = np.argmax(pen, axis=1)                     # deepest-penetrated grain
+                idx = np.arange(n)
+                pen_w = pen[idx, worst]
+                mg = pen_w > 0
+                if mg.any():
+                    dirn = d[idx, worst] / dist[idx, worst][:, None]
+                    F[mg] += (0.55 * pen_w[mg])[:, None] * dirn[mg]
 
         if external is not None:
             F += external

@@ -350,6 +350,8 @@ class CellView(QWidget):
         kC_g = kC * (1 - 0.85 * gel)                   # actin cortex frozen out
         self.sb.update_blebs(f["bleb"])
         pocket = self.ice.pocket_radius if (f["frozen"] and self.ice.active) else None
+        grains = ((self.ice.centres, self.ice.radii)
+                 if (f["frozen"] and self.ice.active) else None)
         if self._settle > 0:
             steps = 22; self._settle -= 22
         elif gel > 0.80:
@@ -358,8 +360,8 @@ class CellView(QWidget):
             steps = 7
         for _ in range(steps):
             self.sb.step(L0, kT_g, kB, 0.60, math.pi * R * R, damp_g, slack,
-                         k_cortex=kC_g, pocket_r=pocket, crystals=crystals,
-                         noise=noise_g, external=self._ext)
+                         k_cortex=kC_g, pocket_r=pocket, grains=grains,
+                         crystals=crystals, noise=noise_g, external=self._ext)
             _ct = f.get("cell_type")                                       # N:C ratio by cell type
             nuc_ratio = 0.62 if _ct == "tcell" else 0.55 if _ct == "avian_rbc" else 0.40
             Rn = self.R0 * nuc_ratio * max(f["Vnuc"], 0.1) ** (1 / 3)
